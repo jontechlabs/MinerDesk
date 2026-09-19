@@ -6,6 +6,20 @@ authors = ["MinerDesk"]
 edition = "2021"
 default-run = "minerdesk"
 
+# Explicit entries keep Tauri's bundler from dropping a secondary executable
+# while scanning src/bin. All three retain their original entry points.
+[[bin]]
+name = "minerdesk"
+path = "src/main.rs"
+
+[[bin]]
+name = "minerdesk-headless"
+path = "src/bin/minerdesk-headless.rs"
+
+[[bin]]
+name = "minerdesk-backend"
+path = "src/bin/minerdesk-backend.rs"
+
 [lib]
 name = "minerdesk_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

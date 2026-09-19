@@ -33,7 +33,7 @@ npx tauri build --bundles deb,appimage
 
 The normal Tauri output is under `src-tauri/target/release/bundle/`. `CARGO_TARGET_DIR` can change that base path. The default binary names are `minerdesk` and `minerdesk-headless`. The Windows-only executable resources, NSIS options and hooks are confined to `tauri.windows.conf.json`; Linux uses `tauri.linux.conf.json`.
 
-The `.deb` installs the desktop entry point. A separate release tarball also provides the standalone CLI. No third-party mining engine is included. RPM, ARM and macOS packages are not claimed as tested.
+The `.deb` installs the desktop and standalone CLI. The compatibility `minerdesk-backend` executable is also packaged, but the Linux desktop hosts its own backend; use `minerdesk-headless` for independent operation. A separate release tarball provides the desktop and standalone CLI. No third-party mining engine is included. RPM, ARM and macOS packages are not claimed as tested.
 
 ## Runtime and headless use
 
@@ -41,8 +41,8 @@ The `.deb` installs the desktop entry point. A separate release tarball also pro
 sudo apt install ./MinerDesk_0.7.22_amd64.deb
 minerdesk
 
-# Extract the Linux executable tarball before using the standalone CLI
-./minerdesk-headless --listen 127.0.0.1 --port 17888
+# Installed standalone CLI (or ./minerdesk-headless from the tarball)
+minerdesk-headless --listen 127.0.0.1 --port 17888
 ```
 
 The desktop requires a working graphical session. Web mode defaults to localhost. Linux does not install the Windows privileged scheduled task or Windows Job Object crash guard. GPU permissions and sleep/hibernate depend on the host; scheduled Windows wake tasks do not exist on Linux.
