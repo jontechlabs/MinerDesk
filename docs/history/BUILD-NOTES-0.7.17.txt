@@ -1,0 +1,14 @@
+Build from the 0.7.17 source root:
+  Set-ExecutionPolicy -Scope Process Bypass
+  .\scripts\build-windows.ps1
+
+Expected final line:
+  BUILD SUCCEEDED: MinerDesk 0.7.17
+
+Run only:
+  publish\windows-x64\MinerDesk_0.7.17_x64-setup.exe
+
+Do not run an older Setup after a failed build.
+The build runs tests/installer-safety.tests.ps1 before compiling.
+Those tests are read-only except for a temporary request round-trip file.
+See VALIDATION-0.7.17.md for environment-specific validation limits.

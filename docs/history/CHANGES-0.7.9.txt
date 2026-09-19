@@ -1,0 +1,14 @@
+MinerDesk 0.7.9
+=================
+
+Runtime / dashboard
+- Stopped profiles now reset uptime to 00:00:00 immediately.
+- Natural miner exits/crashes also clear started_at and uptime, preventing STOP rows from continuing to count.
+
+GPU tuning / restart
+- Start and Restart persist the current UI configuration before launching; a failed save aborts the start instead of using stale settings.
+- lpminer now receives the latest effective Core clock MHz through --lock-core-clock.
+- Per-GPU lpminer overrides take precedence over legacy profile-wide core_clock values.
+- If several selected GPUs resolve to different lpminer core clocks, startup returns an explicit error rather than silently using the wrong value.
+
+All 0.7.8 Job Object crash protection and installer/uninstaller safeguards are retained.

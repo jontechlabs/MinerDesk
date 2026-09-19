@@ -1,0 +1,23 @@
+MinerDesk 0.7.18
+=================
+
+Confirmed InstallBackend failure
+- The provided 0.7.17 log reports Register-ScheduledTask rejecting Interval:PT15S.
+- Replace the unsupported 15-second restart interval with one minute (PT1M).
+- Correct all three production entry points: NSIS maintenance.ps1, the standalone
+  install-privileged-backend.ps1 script, and the Desktop-generated repair script.
+- Preserve RestartCount=3, unlimited execution time, IgnoreNew and --desktop-owned.
+- Do not alter Desktop heartbeat, normal shutdown or miner Job Object behavior.
+
+Diagnostics
+- Explicit FileSeek END before both NSIS log writes; do not overwrite old phases.
+- Emit the backend task policy before registration.
+- Distinguish registration failure (61) from task-start request failure (62).
+- Best-effort XML export after successful task registration for diagnosis.
+- Recognize partially registered 0.7.17 installs in the existing migration flow.
+
+Tests and build
+- Add Interval XSD-constraint tests for all three production settings statements.
+- Build preflight rejects PT15S and verifies agreement between Setup/CLI/repair.
+- Keep Set-ExecutionPolicy -Scope Process Bypass; .\scripts\build-windows.ps1.
+- Windows executable compilation/Task Scheduler runtime not executed here.

@@ -1,0 +1,25 @@
+MinerDesk 0.7.15 build notes
+============================
+
+Build on Windows:
+  npm run tauri:build:setup
+
+Expected distribution files:
+  publish\windows-x64\MinerDesk.exe
+  publish\windows-x64\minerdesk-headless.exe
+  publish\windows-x64\MinerDesk_0.7.15_x64-setup.exe
+
+Recommended migration test from the currently installed legacy release:
+1. Leave the old MinerDesk installed. It may be closed or running.
+2. Launch the 0.7.15 Setup and accept the legacy cleanup prompt.
+3. If MinerDesk/mining is running, Setup must stop it before file removal.
+4. The old Program Files MinerDesk.exe must disappear.
+5. The old uninstall key must be removed by NSIS; Tauri's built-in reinstall page should then be skipped.
+6. Setup must continue into the normal 0.7.15 installation.
+
+Persistent diagnostics:
+  C:\ProgramData\MinerDesk\logs\legacy-upgrade.log
+
+The installer falls back to:
+  %TEMP%\MinerDesk-legacy-upgrade.log
+only when ProgramData logging cannot be created.

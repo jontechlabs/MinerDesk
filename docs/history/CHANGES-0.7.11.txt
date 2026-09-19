@@ -1,0 +1,11 @@
+MinerDesk 0.7.11
+==================
+
+Windows installer build
+- Fixed NSIS error: Function named ".onGUIInit" already exists.
+- The early Setup process guard now uses MUI2's supported MUI_CUSTOMFUNCTION_GUIINIT callback registration.
+- The early guard still executes before Tauri's reinstall page, so a running Desktop/backend/miner can be stopped before the previous uninstaller is invoked.
+- Existing preinstall, uninstall, scheduled-task and orphan-miner cleanup logic is preserved.
+
+Build cleanup
+- spawn_desktop_web is now compiled only on non-Windows, eliminating the harmless Windows dead-code warning.

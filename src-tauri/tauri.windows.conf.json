@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": [
+      "nsis"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "displayLanguageSelector": true,
+        "languages": [
+          "English",
+          "French"
+        ],
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    },
+    "resources": [
+      "resources/minerdesk-headless.exe",
+      "resources/minerdesk-backend.exe"
+    ]
+  }
+}

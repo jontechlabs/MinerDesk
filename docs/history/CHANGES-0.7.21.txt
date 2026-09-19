@@ -1,0 +1,11 @@
+MinerDesk 0.7.21
+===============
+- Fix clean manual Start unnecessarily waiting for a config save.
+- Move Windows wake-task/firewall configuration off the save request's critical path.
+- Serialize and coalesce platform sync; do not reapply unchanged settings.
+- Keep dirty tuning save-before-start and Stop-without-save semantics.
+- Surface partial Start all failures and persistent per-profile command errors.
+- Bound complete HTTP response reads; no automatic retry of timed-out commands.
+- Keep windowless backend, CLI, Job Objects, scheduler holds and power-dialog focus.
+- Add Node command/transport tests and Rust background-worker concurrency tests.
+See CORRECTIONS-0.7.21.md for the exact reproduction, build instructions and limits.

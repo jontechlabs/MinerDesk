@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b0f16" />
+    <title>MinerDesk 0.7.22</title>
+    <style>
+      #boot-splash{position:fixed;inset:0;z-index:99999;display:grid;place-items:center;background:radial-gradient(circle at 50% 30%,#14243b 0,#0b111a 34%,#080b11 75%);color:#eef5ff;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;transition:opacity .28s ease,visibility .28s ease}
+      #boot-splash.boot-hide{opacity:0;visibility:hidden;pointer-events:none}
+      .boot-card{width:min(520px,calc(100vw - 48px));text-align:center;padding:34px 32px 28px;border:1px solid #263146;border-radius:22px;background:linear-gradient(180deg,rgba(18,26,39,.96),rgba(10,15,23,.96));box-shadow:0 24px 70px rgba(0,0,0,.45)}
+      .boot-logo{width:58px;height:58px;margin:0 auto 18px;border-radius:17px;display:grid;place-items:center;font-weight:900;font-size:25px;color:#06120b;background:linear-gradient(135deg,#70f6a0,#48d5f7);box-shadow:0 0 36px rgba(83,235,174,.28)}
+      .boot-title{font-size:25px;font-weight:760;letter-spacing:-.5px}.boot-sub{margin-top:7px;color:#8996aa;font-size:13px}
+      .mine-animation{height:88px;margin:24px auto 12px;position:relative;max-width:360px;overflow:hidden}
+      .mine-track{position:absolute;left:14px;right:14px;bottom:16px;height:5px;border-radius:99px;background:#263246;box-shadow:inset 0 0 0 1px #32415a}
+      .mine-cart{position:absolute;left:18px;bottom:22px;width:54px;height:31px;border:3px solid #62e99a;border-top:0;border-radius:4px 4px 11px 11px;animation:cartMove 2.5s ease-in-out infinite alternate}
+      .mine-cart:before,.mine-cart:after{content:"";position:absolute;bottom:-13px;width:10px;height:10px;border-radius:50%;background:#95a3b9;border:2px solid #263246}.mine-cart:before{left:5px}.mine-cart:after{right:5px}
+      .ore{position:absolute;width:15px;height:15px;transform:rotate(45deg);border-radius:3px;background:linear-gradient(135deg,#70f6a0,#28bcd7);box-shadow:0 0 14px rgba(90,236,168,.3);animation:orePulse 1.1s ease-in-out infinite alternate}.ore.o1{left:8px;top:-10px}.ore.o2{left:25px;top:-4px;animation-delay:.22s}.ore.o3{left:37px;top:-13px;animation-delay:.44s}
+      .pickaxe{position:absolute;right:32px;top:8px;width:8px;height:58px;border-radius:7px;background:#aebbd0;transform-origin:50% 90%;animation:pick 1.05s ease-in-out infinite}.pickaxe:before{content:"";position:absolute;left:-18px;top:0;width:44px;height:8px;border-radius:50% 50% 3px 3px;background:#68ee9f;transform:rotate(-5deg)}
+      .spark{position:absolute;right:55px;bottom:24px;width:5px;height:5px;border-radius:50%;background:#7af2a6;box-shadow:12px -8px #56d7f4,-8px -14px #7af2a6;animation:spark 1.05s ease-out infinite}
+      .boot-status{margin-top:12px;color:#aab6c8;font-size:12px;min-height:18px}.boot-progress{height:4px;border-radius:99px;background:#202a3a;margin-top:17px;overflow:hidden}.boot-progress span{display:block;height:100%;width:38%;border-radius:99px;background:linear-gradient(90deg,#70f6a0,#48d5f7);animation:progress 1.35s ease-in-out infinite}
+      @keyframes cartMove{from{transform:translateX(0)}to{transform:translateX(190px)}}
+      @keyframes orePulse{from{filter:brightness(.8);transform:rotate(45deg) scale(.9)}to{filter:brightness(1.4);transform:rotate(45deg) scale(1.08)}}
+      @keyframes pick{0%,100%{transform:rotate(24deg)}50%{transform:rotate(-30deg)}}
+      @keyframes spark{0%,45%{opacity:0;transform:scale(.3)}55%{opacity:1}100%{opacity:0;transform:translate(-16px,-12px) scale(1.4)}}
+      @keyframes progress{0%{transform:translateX(-120%)}50%{transform:translateX(120%)}100%{transform:translateX(300%)}}
+      @media (prefers-reduced-motion:reduce){.mine-cart,.ore,.pickaxe,.spark,.boot-progress span{animation:none}}
+    </style>
+  </head>
+  <body>
+    <div id="boot-splash" role="status" aria-live="polite">
+      <div class="boot-card">
+        <div class="boot-logo">M</div>
+        <div class="boot-title">MinerDesk</div>
+        <div class="boot-sub">Preparing your mining workspace</div>
+        <div class="mine-animation" aria-hidden="true">
+          <div class="mine-track"></div>
+          <div class="mine-cart"><i class="ore o1"></i><i class="ore o2"></i><i class="ore o3"></i></div>
+          <div class="pickaxe"></div><div class="spark"></div>
+        </div>
+        <div id="boot-status" class="boot-status">Starting privileged backend…</div>
+        <div class="boot-progress"><span></span></div>
+      </div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

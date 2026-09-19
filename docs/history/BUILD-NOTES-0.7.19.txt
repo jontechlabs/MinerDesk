@@ -1,0 +1,17 @@
+Build MinerDesk 0.7.19 on Windows
+=================================
+From this extracted source root:
+  Set-ExecutionPolicy -Scope Process Bypass
+  .\scripts\build-windows.ps1
+
+Run only after BUILD SUCCEEDED: MinerDesk 0.7.19:
+  .\publish\windows-x64\MinerDesk_0.7.19_x64-setup.exe
+
+New required Desktop backend: minerdesk-backend.exe (PE Windows/GUI subsystem).
+CLI retained: minerdesk-headless.exe (PE console subsystem).
+The script builds both before packaging and checks the real PE headers.
+
+Test manual Stop on a scheduled session, wait >=10 seconds, and verify no restart.
+The next schedule occurrence must still run. Start must resume a held current window.
+Verify Scheduled Task action uses minerdesk-backend.exe --desktop-owned.
+See VALIDATION-0.7.19.md for what was and was not executed in this environment.

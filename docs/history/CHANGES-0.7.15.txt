@@ -1,0 +1,18 @@
+MinerDesk 0.7.15
+=================
+
+Windows legacy-upgrade cleanup reliability
+- Fixes the 0.7.14 failure "The previous MinerDesk uninstall registration could not be removed" after apparently successful cleanup.
+- PowerShell no longer deletes or verifies Tauri's uninstall registry key. NSIS performs registry cleanup itself in both 64-bit and 32-bit views, matching Tauri's own registry handling.
+- If direct NSIS deletion leaves a stale key, Setup retries deterministically with reg.exe /reg:64 and /reg:32, then verifies both views again.
+- The cleanup helper receives the already-resolved $INSTDIR from Setup instead of trying to rediscover the install location through PowerShell registry access.
+- On 64-bit Windows, the installer prefers native 64-bit Windows PowerShell via Sysnative when the NSIS host is 32-bit.
+- Upgrade logs are persisted at C:\ProgramData\MinerDesk\logs\legacy-upgrade.log; %TEMP% is only a fallback. Setup creates the log before launching PowerShell.
+- Legacy migration detection now covers 0.7.3 through 0.7.14.
+
+Existing protections retained
+- Windows Job Object crash guard for MinerDesk-managed miners.
+- Desktop/headless lifecycle and PID-aware heartbeat handling.
+- Installer/uninstaller process checks and orphan-miner cleanup.
+- STOP resets miner uptime to 00:00:00.
+- lpminer uses the latest configured --lock-core-clock after Stop/Start.

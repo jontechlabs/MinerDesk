@@ -1,0 +1,35 @@
+{
+  "name": "minerdesk",
+  "private": true,
+  "version": "0.7.22",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "npm run build && npm run headless:build:debug && tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:build:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
+    "headless:build": "npm run build && node scripts/prepare-windows-resources.mjs && cargo build --release --manifest-path src-tauri/Cargo.toml --bin minerdesk-headless",
+    "headless:run": "npm run build && node scripts/prepare-windows-resources.mjs && cargo run --release --manifest-path src-tauri/Cargo.toml --bin minerdesk-headless --",
+    "tauri:bundle:nsis": "tauri build --bundles nsis",
+    "headless:build:debug": "node scripts/prepare-windows-resources.mjs && cargo build --manifest-path src-tauri/Cargo.toml --bin minerdesk-headless --bin minerdesk-backend",
+    "test:mining-controls": "node --test tests/miner-controls.test.cjs",
+    "build:linux": "bash scripts/build-linux.sh",
+    "test": "npm run test:mining-controls && node --test tests/platform-config.test.cjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.1"
+  }
+}

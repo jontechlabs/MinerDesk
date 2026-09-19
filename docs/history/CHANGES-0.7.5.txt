@@ -1,0 +1,18 @@
+MinerDesk 0.7.5
+=================
+
+Console
+- The console page now always stretches to the full available width, including with 0 log lines.
+
+Desktop/headless lifecycle
+- Desktop-managed privileged backends are now launched with the internal --desktop-owned flag.
+- Plain command-line minerdesk-headless.exe launches are standalone: Desktop heartbeats and Desktop shutdown requests are ignored.
+- Desktop heartbeats include the Desktop PID.
+- After a heartbeat gap, the backend verifies that the owning Desktop PID is actually gone before stopping miners/backend.
+- If the PID is still alive (or liveness cannot safely be determined), mining continues.
+- Normal Desktop exits still request graceful backend shutdown immediately.
+- Scheduled-task installer/repair helpers and the elevated fallback all use --desktop-owned.
+
+Diagnostics
+- Heartbeat transport failures and recoveries are logged after sustained connection errors.
+- Backend health now reports whether the headless server is Desktop-owned.

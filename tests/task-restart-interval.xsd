@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Isolated constraint, not the full Task Scheduler schema.
+     Source: Microsoft, Interval (restartType) Element:
+     https://learn.microsoft.com/en-us/windows/win32/taskschd/taskschedulerschema-interval-restarttype-element
+     The fixture preserves the actual duration bounds PT1M and P31D. -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="Interval">
+    <xs:simpleType>
+      <xs:restriction base="xs:duration">
+        <xs:minInclusive value="PT1M"/>
+        <xs:maxInclusive value="P31D"/>
+      </xs:restriction>
+    </xs:simpleType>
+  </xs:element>
+</xs:schema>

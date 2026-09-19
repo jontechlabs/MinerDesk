@@ -1,0 +1,16 @@
+MinerDesk 0.7.12
+==================
+
+Legacy Windows upgrade bridge
+- Fixed upgrades from older MinerDesk releases (especially 0.7.9) that could still show:
+  "Uninstall could not safely stop the MinerDesk backend" even when no MinerDesk process was running.
+- Root cause: Tauri's reinstall page executes the previously installed uninstall.exe before the new Setup reaches NSIS_HOOK_PREINSTALL. The failing message therefore came from the old uninstaller, not from 0.7.11's new shutdown logic.
+- Setup now detects installed MinerDesk 0.7.3 through 0.7.11 and temporarily substitutes a deterministic legacy cleanup helper for the old UninstallString.
+- The helper stops Desktop/headless/miners, removes scheduled tasks and old integration entries, removes the old program files, preserves the user's AppData configuration, and returns control to the new Setup.
+- If Setup is cancelled before the legacy helper runs, the original UninstallString is restored automatically through MUI_CUSTOMFUNCTION_ABORT.
+- Normal 0.7.12 uninstall continues to use the split, independently verified shutdown sequence introduced in 0.7.10/0.7.11.
+
+All 0.7.9 fixes remain included
+- Stopped profiles reset uptime to 00:00:00.
+- lpminer Core clock changes are emitted as --lock-core-clock on every fresh start/restart.
+- Windows Job Object crash guard prevents MinerDesk-managed miners from surviving their owning headless backend.

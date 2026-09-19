@@ -1,0 +1,26 @@
+MinerDesk 0.7.20 build notes
+=============================
+
+Windows build (canonical workflow)
+  Set-ExecutionPolicy -Scope Process Bypass
+  .\scripts\build-windows.ps1
+
+Expected output
+  publish\windows-x64\MinerDesk.exe
+  publish\windows-x64\minerdesk-backend.exe
+  publish\windows-x64\minerdesk-headless.exe
+  publish\windows-x64\MinerDesk_0.7.20_x64-setup.exe
+  publish\windows-x64\build-info.json
+
+Recommended regression test
+1. Create a short schedule for one test profile and configure a sleep/hibernate post action with confirmation.
+2. Let the schedule start the profile and then reach its end.
+3. Confirm the native MinerDesk window is restored/focused when the power modal appears.
+4. Cancel the power action.
+5. Manually Start the same profile after the schedule has ended. It must keep running and must not be stopped by the scheduler.
+6. Repeat with a Start very close to the schedule end boundary.
+7. Verify Manual Stop during an active schedule still prevents automatic restart for that dated occurrence.
+
+Preparation-environment limits
+- Windows Rust/Tauri compilation and the real installer were not executed here.
+- The Windows build script runs the production scheduler Rust tests and PowerShell source preflights before packaging.

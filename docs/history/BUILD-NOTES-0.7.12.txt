@@ -1,0 +1,24 @@
+MinerDesk 0.7.12 build notes
+=============================
+
+Primary Windows installer change
+- Adds a legacy upgrade bridge for installed versions 0.7.3 through 0.7.11.
+- The bridge prevents Tauri from invoking the known-broken 0.7.9 uninstall logic by temporarily redirecting its UninstallString to the embedded cleanup helper.
+- Standard Cancel before the helper runs restores the old UninstallString.
+
+Build
+  npm run tauri:build:setup
+
+Expected output
+  publish\windows-x64\MinerDesk.exe
+  publish\windows-x64\minerdesk-headless.exe
+  publish\windows-x64\MinerDesk_0.7.12_x64-setup.exe
+
+Recommended migration test
+1. Keep the currently installed 0.7.9 in place. No MinerDesk process needs to be running.
+2. Launch the 0.7.12 Setup.
+3. Choose the normal uninstall-before-install option on Tauri's reinstall page.
+4. The old generic 0.7.9 backend-shutdown error must not appear.
+5. Setup should continue into the 0.7.12 installation and recreate the privileged backend task if selected.
+
+The container used to prepare this source does not provide the Windows Rust/NSIS toolchain, so the final makensis execution still needs to be tested on Windows.

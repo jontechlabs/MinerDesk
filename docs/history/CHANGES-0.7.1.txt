@@ -1,0 +1,8 @@
+MinerDesk 0.7.1 - Alephium dev-tip payout
+
+- Added native Alephium (ALPH) public developer payout address:
+  1DHz1Q6ZqhHy3HNnSyAcF3swmTb113JgYUubR499FQE6u
+- Added ALPH network detection in both desktop UI and privileged/headless backend.
+- ALPH is detected from algorithm names alph / aleph / alephium or an explicit alephium pool hint.
+- EVM wallet detection has precedence over ALPH detection, preventing EVM-wallet profiles using Alephium-compatible algorithms from being redirected to the native ALPH wallet.
+- No private key or seed is stored; the application contains only the public receive address.

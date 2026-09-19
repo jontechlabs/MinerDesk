@@ -1,0 +1,27 @@
+MinerDesk 0.7.7 - build notes
+================================
+
+Windows recommended build command (from the project root):
+  npm run tauri:build:setup
+
+That command rebuilds minerdesk-headless.exe first, copies the freshly built
+binary into src-tauri/resources, then builds the Tauri/NSIS Setup package.
+
+Important:
+- src-tauri/resources/minerdesk-headless.exe in this source archive is the older
+  prebuilt resource inherited from the uploaded project. This environment has no
+  Rust Windows toolchain, so it is not claimed to contain the 0.7.7 Rust build.
+- Use npm run tauri:build:setup before distributing the Windows installer.
+
+0.7.7 uninstall behavior:
+- Detect Desktop/headless/running privileged task and ask before stopping mining.
+- Yes: disable/end task -> terminate process trees -> stop managed-miner fallback
+  processes -> wait for exit -> unregister task -> verify task removal -> continue.
+- No: cancel uninstall without removing MinerDesk components.
+- Cleanup is not gated by BackendTaskAdded, so stale task registrations are removed.
+
+0.7.7 install/upgrade behavior:
+- A running Scheduled Task counts as an active backend for the pre-install prompt.
+- The task is disabled/ended before process termination and file replacement.
+- Setup waits briefly even when no process is visible, avoiding an asynchronous
+  Stop-ScheduledTask race that could leave minerdesk-headless.exe locked.

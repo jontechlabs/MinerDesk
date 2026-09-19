@@ -1,0 +1,16 @@
+MinerDesk 0.7.9 - build notes
+================================
+
+Windows Setup build:
+
+    npm run tauri:build:setup
+
+The build script compiles the matching 0.7.9 minerdesk-headless.exe first, copies it into src-tauri/resources, and then creates the NSIS installer.
+
+Important: src-tauri/resources/minerdesk-headless.exe remains a zero-byte source placeholder until the Windows build command replaces it with the freshly compiled 0.7.9 backend.
+
+Regression checks after installation:
+1. Start a miner, wait for uptime to advance, then Stop. Uptime must immediately show 00:00:00 and remain there.
+2. Change Core clock MHz (for example from a legacy 2200 value to another supported clock), click Start, and inspect Console. lpminer must include `--lock-core-clock <new value>` in the MinerDesk command line.
+3. Stop, change the clock again, Start again, and confirm the newly generated command uses the new value.
+4. Force-kill minerdesk-headless.exe while mining and confirm the 0.7.8 Windows Job Object crash guard still terminates the miner process tree.

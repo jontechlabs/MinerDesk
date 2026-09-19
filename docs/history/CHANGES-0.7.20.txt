@@ -1,0 +1,20 @@
+MinerDesk 0.7.20
+==================
+
+Manual start after schedule end
+- Explicit Start and Restart are now always user-owned sessions.
+- The scheduler only stops sessions it started itself, so a manual launch at/after a schedule boundary is not killed by the next scheduler tick.
+- Manual Start/Restart cancels a pending sleep/hibernate request created when a schedule just ended.
+- The backend also cancels an outstanding power action if it detects mining resumed before the countdown executes.
+- Manual Stop holds introduced in 0.7.19 are still preserved for the current dated schedule occurrence until Start/Restart or occurrence end.
+
+Power confirmation foreground behavior
+- A Windows-native Rust watcher polls a read-only power peek endpoint while MinerDesk is minimized/hidden, avoiding WebView timer throttling.
+- The read-only peek does not renew the UI-confirmation lease; the rendered UI remains authoritative. A new action unminimizes, shows and focuses the main window.
+- Cancel receives keyboard focus by default as the safer action.
+- Browser/headless web clients do not invoke native focus behavior.
+
+Regression coverage
+- Scheduler policy now explicitly tests that scheduler-owned sessions stop at window end and manually started sessions do not.
+- Windows source preflight checks the native focus path and user-owned manual-start policy.
+- Upgrade maintenance now recognizes installed 0.7.19.

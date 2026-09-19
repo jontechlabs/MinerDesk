@@ -1,0 +1,20 @@
+Build from the NEW 0.7.18 source root:
+  Set-ExecutionPolicy -Scope Process Bypass
+  .\scripts\build-windows.ps1
+
+Required success message:
+  BUILD SUCCEEDED: MinerDesk 0.7.18
+
+Run only:
+  publish\windows-x64\MinerDesk_0.7.18_x64-setup.exe
+
+Do not run a previous Setup after a build failure.
+Preflight now includes tests/backend-task-settings.tests.ps1.
+It verifies the task restart interval against the Microsoft XML constraint;
+no Scheduled Task is registered and no running process is modified.
+
+Expected backend task settings: RestartCount=3, RestartInterval=PT1M.
+Windows requires a minimum restart interval of one minute; PT15S is invalid.
+This does not increase the Desktop heartbeat/normal-stop delay.
+
+See VALIDATION-0.7.18.md for what was actually tested.

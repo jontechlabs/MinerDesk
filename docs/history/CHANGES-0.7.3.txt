@@ -1,0 +1,10 @@
+MinerDesk 0.7.3
+
+System tray mining status
+- The Windows tray menu now shows live mining information from the privileged backend.
+- One active miner: profile, hashrate, power, temperature/fan, accepted/rejected shares and uptime.
+- Several active miners: active count, total power, up to two profile/hashrate summaries, maximum temperature and aggregate shares.
+- No active miner: clearly shows that mining is stopped.
+- Backend unavailable: the tray reports that status instead of showing stale values.
+- Information refreshes every 4 seconds while the desktop process is running.
+- No additional GPU tuning or mining limits are introduced.

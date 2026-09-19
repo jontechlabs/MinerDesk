@@ -1,0 +1,30 @@
+name: Bug report
+description: Report a reproducible problem with MinerDesk
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include tokens, private keys, wallet identifiers, personal config or unredacted command lines. Security reports belong in private vulnerability reporting."
+  - type: input
+    id: version
+    attributes:
+      label: MinerDesk version and operating system
+      placeholder: "0.7.22 / Windows 11 x64"
+    validations:
+      required: true
+  - type: input
+    id: engine
+    attributes:
+      label: Mining engine, version and GPU (if relevant)
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: What did you do, what happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Remove personal paths, wallets, tokens and pool credentials first.
+      render: text

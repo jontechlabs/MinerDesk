@@ -1,0 +1,16 @@
+MinerDesk 0.7.6
+=================
+
+Windows installer / upgrade
+- Setup now detects both MinerDesk.exe and minerdesk-headless.exe before replacing files.
+- If either is running, the user is asked whether Setup may force-close MinerDesk and continue.
+- Choosing No cancels installation; no running process is silently terminated.
+- Choosing Yes temporarily disables the privileged backend Scheduled Task and terminates the MinerDesk/headless process trees, including mining-engine child processes.
+- Setup verifies that both MinerDesk processes have exited before continuing and aborts with an explicit message if they are still running.
+- Declining privileged-backend installation during an upgrade now removes any old scheduled backend task.
+
+Lifecycle confirmation
+- A real Desktop exit asks the Desktop-owned backend to stop all managed miners before exiting.
+- If Desktop is force-terminated, the PID-aware heartbeat watchdog detects that the Desktop PID is gone after the grace period and then stops all managed miners/backend.
+- Close-to-tray is intentionally not an exit.
+- A manually launched standalone minerdesk-headless.exe remains independent from the Desktop by design.

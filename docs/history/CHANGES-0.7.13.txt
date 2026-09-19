@@ -1,0 +1,17 @@
+MinerDesk 0.7.13
+==================
+
+Windows upgrade / uninstall migration
+- Replaces the 0.7.12 UninstallString redirection bridge with deterministic early cleanup run directly by the new Setup.
+- Cleanup occurs in MUI GUI initialization, before Tauri's PageReinstall can execute the previous uninstall.exe.
+- Supports migration from MinerDesk 0.7.3 through 0.7.12.
+- Stops Desktop, privileged headless backend, scheduled task and managed miners before removing old Program Files application files.
+- Preserves AppData configuration and ProgramData downloaded miners.
+- Removes the old uninstall registry key so Tauri skips its previous-uninstaller branch entirely.
+- Writes a diagnostic log to %TEMP%\MinerDesk-legacy-upgrade.log and returns explicit codes 20/30/31 on cleanup failures.
+
+All 0.7.12/0.7.9/0.7.8 fixes remain included
+- Job Object crash guard for miners.
+- Desktop/headless lifecycle protection.
+- Stopped profile uptime resets to 00:00:00.
+- lpminer core clock is re-applied on fresh start/restart.

@@ -1,0 +1,27 @@
+MinerDesk 0.7.10 build notes
+============================
+
+Build on Windows from an Administrator-capable development environment:
+
+  npm run tauri:build:setup
+
+The script rebuilds the React frontend and minerdesk-headless.exe, copies the fresh
+headless binary into src-tauri/resources, then runs the Tauri NSIS bundle.
+
+Maintenance test recommended after installing 0.7.10:
+1. Start MinerDesk and one miner.
+2. While MinerDesk is still open, start the next/rebuilt Setup.
+3. Setup must ask to close MinerDesk before the previous uninstaller is launched.
+4. Accept. Desktop, headless and the miner must disappear.
+5. Upgrade/uninstall must continue without the old generic
+   "Uninstall could not safely stop the MinerDesk backend" error.
+
+Direct uninstall test:
+1. Start MinerDesk and one miner.
+2. Launch Windows uninstall while MinerDesk is open.
+3. Accept the shutdown prompt.
+4. Verify MinerDesk.exe, minerdesk-headless.exe and managed miners are gone.
+5. Verify the "MinerDesk Privileged Backend" Scheduled Task is removed.
+
+Manual recovery helper (elevated PowerShell):
+  .\scripts\stop-minerdesk-maintenance.ps1 -RemoveTask

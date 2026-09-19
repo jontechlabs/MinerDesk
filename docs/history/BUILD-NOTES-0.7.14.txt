@@ -1,0 +1,19 @@
+MinerDesk 0.7.14 build notes
+=============================
+
+Build on Windows:
+  npm run tauri:build:setup
+
+Expected output:
+  publish\windows-x64\MinerDesk.exe
+  publish\windows-x64\minerdesk-headless.exe
+  publish\windows-x64\MinerDesk_0.7.14_x64-setup.exe
+
+Regression test for the reported migration failure:
+1. Leave the currently installed old MinerDesk version in place.
+2. Make sure MinerDesk itself can be closed; no manual uninstall is required.
+3. Launch the 0.7.14 Setup.
+4. Accept the early cleanup prompt.
+5. The literal `code error` must never be shown.
+6. If the helper fails, the message must contain a numeric code and `%TEMP%\MinerDesk-legacy-upgrade.log` must exist.
+7. On success, Setup should proceed without invoking the old broken uninstaller.

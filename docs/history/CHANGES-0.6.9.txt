@@ -1,0 +1,29 @@
+MinerDesk 0.6.9 - lpminer and NPMiner integration
+
+Added engines in Miners & profiles
+-----------------------------------
+1. lpminer
+   - Official repo: BaikalMine-Pools/pearl-miner
+   - Auto-download from the latest GitHub release
+   - Windows executable: lpminer.exe
+   - Linux executable: lpminer
+   - Command mapping: --algo, --pool, --wallet
+   - Worker is appended as WALLET.WORKER, matching the official lpminer examples.
+   - GPU discovery falls back to system detection because the official lpminer README does not document a stable list-GPU/device-selection interface.
+   - GPU tuning is deliberately not emitted as undocumented lpminer flags; use Advanced arguments when required.
+
+2. NPMiner
+   - Official repo: nushypool/npminer
+   - Auto-download supports the Windows .tar.gz release format and Linux archives
+   - Windows executable: npminer.exe
+   - Linux executable: npminer
+   - Command mapping: -a/--algo, -o/--url, -u/--user, -w/--worker, -p/--pass
+   - GPU discovery: --list-gpus
+   - GPU selection: --devices INDEX[,INDEX...]
+   - API: --api-port
+   - CUDA tuning supported by documented flags: --cuda-lock-core-clocks and --cuda-power-limits
+   - PearlHash alias is normalized from pearlhash to pearl.
+
+Existing 0.6.8 functionality
+----------------------------
+Windows startup and close-to-tray features are retained, including the compile fix to the Tauri setup closure.

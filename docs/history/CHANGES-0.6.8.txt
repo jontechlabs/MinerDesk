@@ -1,0 +1,60 @@
+MinerDesk 0.6.8 - requested Windows desktop behavior changes
+============================================================
+
+Implemented
+-----------
+1. Start MinerDesk with Windows
+   - New Settings > Windows behavior checkbox.
+   - Disabled by default.
+   - Uses HKCU\Software\Microsoft\Windows\CurrentVersion\Run.
+   - Uses the current MinerDesk.exe path and does not elevate the desktop UI.
+   - The startup value is removed when the option is disabled.
+   - The NSIS uninstaller also removes the startup value.
+
+2. Close to notification area (system tray)
+   - New Settings > Windows behavior checkbox.
+   - Disabled by default.
+   - When enabled, clicking the window X hides MinerDesk instead of exiting.
+   - Tray icon left-click restores the main window.
+   - Tray menu includes Open MinerDesk and Quit MinerDesk.
+   - The tray icon is hidden while the option is disabled.
+
+Compatibility
+-------------
+- Existing config.json files remain compatible because the new fields use serde defaults.
+- The privileged backend lifecycle option is unchanged.
+- Existing miners/schedules/web settings are unchanged.
+- Tauri tray support is enabled only for the Windows target.
+
+Main files changed
+------------------
+- src-tauri/src/lib.rs
+- src-tauri/Cargo.toml
+- src-tauri/windows/hooks.nsh
+- src/types.ts
+- src/App.tsx
+- src/i18n.ts
+- src/styles.css
+- package.json / tauri.conf.json / version references
+- README.md / SETUP-WINDOWS.md
+
+Windows validation checklist
+----------------------------
+1. Build with: .\scripts\build-windows.ps1
+2. Install the generated MinerDesk_0.6.8_x64-setup.exe.
+3. Open Settings > Windows behavior.
+4. Confirm both checkboxes are OFF by default.
+5. Enable Start MinerDesk with Windows, save, then verify:
+   Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name MinerDesk
+6. Disable it, save, and verify the registry value is gone.
+7. Enable close-to-tray, save, then click X.
+   - Window should disappear.
+   - MinerDesk tray icon should remain visible.
+   - Left-click should restore the window.
+   - Tray > Quit MinerDesk should exit the desktop app.
+8. Disable close-to-tray, save, and confirm X exits normally.
+
+Build fix (2026-09-16)
+----------------------
+- Fixed Tauri `.setup(...)` callback return-type mismatch during Rust compilation.
+- `configure_windows_tray(...)` now uses `?` inside a callback returning `Ok(())`, allowing `tauri::Error` to be coerced to the error type expected by Tauri Builder.

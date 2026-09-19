@@ -1,0 +1,18 @@
+MinerDesk 0.7.11 build notes
+=============================
+
+Build the Windows Setup from PowerShell:
+
+  npm run tauri:build:setup
+
+Expected NSIS result:
+- No duplicate .onGUIInit error.
+- The generated Setup should reach the bundling stage and produce MinerDesk_0.7.11_x64-setup.exe (exact filename may vary).
+
+Regression test for maintenance guard:
+1. Leave MinerDesk Desktop/headless/mining running.
+2. Launch the 0.7.11 Setup.
+3. The early prompt must appear before the previous-version uninstaller runs.
+4. Choosing Yes must stop Desktop, the privileged backend and managed miners, then allow the upgrade to continue.
+
+The 0.7.11 change is intentionally narrow: it replaces the conflicting direct .onGUIInit declaration with MUI_CUSTOMFUNCTION_GUIINIT while preserving the 0.7.10 shutdown logic.

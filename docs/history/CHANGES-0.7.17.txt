@@ -1,0 +1,14 @@
+MinerDesk 0.7.17
+================
+- Replace every inline PowerShell -Command in NSIS hooks with an extracted script.
+- Pass installer parameters via a UTF-16 request file, not quoted source fragments.
+- Resolve ProgramData using supported NSIS shell variables.
+- Log every maintenance phase, helper return code and captured output.
+- Distinguish actual remaining processes from helper/query/launch failures.
+- Exclude Setup/helper process chain, use exact installed paths and creation-time checks.
+- Keep user confirmation for process termination; no implicit forced kill in silent mode.
+- Remove only known legacy binaries, never recursively erase an install directory.
+- Fail the Windows build on all nonzero native command exit codes.
+- Publish only the freshly generated current-version Setup, with a hash manifest.
+- Add Windows parser and synthetic-process regression tests to the build preflight.
+- Keep mining runtime changes from 0.7.16 (only bump runtime version strings).

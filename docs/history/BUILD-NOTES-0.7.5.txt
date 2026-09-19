@@ -1,0 +1,22 @@
+MinerDesk 0.7.5 - build notes
+================================
+
+Windows recommended build command (from the project root):
+  npm run tauri:build:setup
+
+That script rebuilds minerdesk-headless.exe first, copies the freshly built binary
+into src-tauri/resources, then builds the Tauri/NSIS Setup package.
+
+Important:
+- src-tauri/resources/minerdesk-headless.exe in this source archive is the older
+  prebuilt resource inherited from the uploaded project. This environment has no
+  Rust Windows toolchain, so it is not claimed to contain the 0.7.5 Rust changes.
+- Do not distribute a Setup built directly from that stale resource binary. Use
+  npm run tauri:build:setup so the matching 0.7.5 headless executable is rebuilt.
+
+0.7.5 lifecycle model:
+- Scheduled/elevated Desktop backend: minerdesk-headless.exe --desktop-owned
+- Manual CLI backend: minerdesk-headless.exe (no Desktop watchdog)
+- Normal Desktop exit: graceful API shutdown of Desktop-owned backend
+- Forced Desktop exit: PID-aware watchdog verifies the Desktop process is gone
+  before stopping miners/backend.

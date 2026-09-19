@@ -1,0 +1,18 @@
+MinerDesk 0.7.19
+================
+- Separate Windows GUI-subsystem minerdesk-backend.exe from the unchanged console CLI entry point.
+- Setup, Scheduled Task, elevated fallback and Repair backend use the windowless binary.
+- Include both binaries in build/resources/install/uninstall and exact-path process cleanup.
+- Do not depend on Ctrl+C registration for the windowless runtime; preserve standalone CLI behavior.
+- Launch diagnostic subprocesses without extra consoles on Windows.
+- Persist manual Stop holds for active dated schedule occurrences, including overnight windows.
+- Stop all covers eligible but not-yet-running scheduled profiles as well as active miners.
+- Start/Restart resumes holds; later occurrences start normally. Existing automatic end remains.
+- Serialize scheduled/manual/dev-tip lifecycle changes and gate shutdown against late restarts.
+- Show manual schedule pause on dashboard; Stop no longer depends on saving edits first.
+- Add 13 pure Rust scheduler-policy tests and windowless packaging/ownership preflight.
+- Verify GUI/console PE subsystem fields in actual built backend/CLI files.
+- Retain PT1M task retry fix, checked installer command execution, append-only logs,
+  existing Job Object guard, core-clock handling and stopped-uptime reset.
+
+This is a source release. The Windows/GPU runtime was not executed here.

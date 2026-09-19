@@ -1,0 +1,8 @@
+MinerDesk 0.7.21
+
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\build-windows.ps1
+
+Expected Setup: publish\windows-x64\MinerDesk_0.7.21_x64-setup.exe
+
+See CORRECTIONS-0.7.21.md for diagnosis, regression tests and platform limits.

@@ -1,0 +1,27 @@
+MinerDesk 0.7.7
+=================
+
+Windows uninstall / backend cleanup
+- Uninstall now detects MinerDesk.exe, minerdesk-headless.exe, and a running
+  "MinerDesk Privileged Backend" Scheduled Task before removing files.
+- If any of them is active, the user is explicitly asked whether MinerDesk may
+  stop mining and close the application/backend to continue uninstall.
+- Choosing No cancels uninstall and leaves the running components untouched.
+- Choosing Yes disables and ends the Scheduled Task before killing the Desktop
+  and headless process trees, so the task cannot immediately relaunch the backend.
+- Managed miner processes under C:\ProgramData\MinerDesk\miners are also stopped
+  as a fallback in case a mining engine was detached from the headless process tree.
+- Uninstall waits until MinerDesk/headless have exited, then unregisters the
+  Scheduled Task and verifies that the task is actually gone before deleting files.
+- Scheduled-task removal no longer depends on the BackendTaskAdded registry flag,
+  which also cleans up stale tasks left by an older installation.
+- The standalone scripts/uninstall-privileged-backend.ps1 helper now follows the
+  same stop/wait/verify order.
+
+Windows install / upgrade
+- Setup now treats a running privileged Scheduled Task itself as an active backend,
+  even if Get-Process temporarily does not return minerdesk-headless.exe.
+- When force-close is accepted, Setup disables/ends the task before terminating
+  MinerDesk/headless and includes a managed-miner fallback cleanup.
+- If no process is visible, Setup still waits briefly after stopping the task to
+  avoid replacing minerdesk-headless.exe while Windows is finishing task shutdown.

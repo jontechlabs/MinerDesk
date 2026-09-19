@@ -1,0 +1,20 @@
+MinerDesk 0.7.8 - build notes
+================================
+
+Build the Windows distribution with:
+
+  npm run tauri:build:setup
+
+The build script compiles the matching 0.7.8 minerdesk-headless.exe first, copies it into src-tauri/resources, and then creates the NSIS installer.
+
+Important: `src-tauri/resources/minerdesk-headless.exe` is a zero-byte source placeholder. The build command above compiles the matching 0.7.8 headless binary and replaces the placeholder before NSIS packaging.
+
+0.7.8 crash-safety behavior:
+- Creates a dedicated Windows Job Object per miner with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.
+- Starts each miner with CREATE_SUSPENDED.
+- Assigns the miner process to the Job Object.
+- Resumes the miner only after successful assignment.
+- If any protection step fails, MinerDesk kills the miner and reports an error rather than allowing an unprotected miner to continue.
+- When minerdesk-headless.exe terminates for any reason, Windows closes the Job Object handle and kills remaining associated miner processes.
+
+This environment does not include the Rust Windows toolchain, so the Windows binaries were not compiled here. TypeScript/Rust source structure and archive contents were inspected, but the final Setup should be built and smoke-tested on Windows.

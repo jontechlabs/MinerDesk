@@ -1,0 +1,11 @@
+MinerDesk 0.7.2
+=================
+
+- Disabled miner profiles are clearly marked DISABLED on the dashboard.
+- Disabled profiles show a short explanation, cannot be started from the dashboard, and can be filtered separately.
+- Console page now fits the remaining visible application height; the outer page no longer needs a vertical scrollbar. The log area itself remains scrollable.
+- Removed the bundled 2200 MHz core-clock limit from the default PRL Eco profile. New/default profiles apply no GPU core-frequency limit unless explicitly configured.
+
+Existing saved profiles keep their explicit tuning values. If an older saved profile already contains a 2200 MHz core lock, clear that value in Miners & profiles to return to unchanged/default GPU behavior.
+
+- lpminer profiles using `pearlhash` are translated to lpminer's documented `--algo pearl` value.

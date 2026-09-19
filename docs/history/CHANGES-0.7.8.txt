@@ -1,0 +1,19 @@
+MinerDesk 0.7.8
+=================
+
+Windows miner crash guard
+-------------------------
+- Added one dedicated Windows Job Object per mining engine.
+- The job uses JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so miners are terminated by Windows if minerdesk-headless.exe disappears unexpectedly.
+- Miners are created suspended, assigned to the Job Object, then resumed to avoid a pre-assignment process-tree race.
+- Miner startup now fails closed if the Job Object cannot be created, assigned, or the suspended process cannot be resumed safely.
+- Miner log output records when the Windows crash guard is active.
+- /api/health now reports miner_crash_guard.
+- Settings displays the current crash-guard status.
+- Setup/upgrade detection now includes orphaned MinerDesk-managed miner executables under ProgramData, not only Desktop/headless/task state.
+- Protection is active for both Desktop-owned and standalone headless modes. Standalone mode is still independent from Desktop heartbeat/lifecycle.
+
+Inherited fixes
+---------------
+- Keeps 0.7.7 uninstall/install task shutdown safeguards.
+- Keeps 0.7.5 PID-aware Desktop heartbeat and full-width console behavior.

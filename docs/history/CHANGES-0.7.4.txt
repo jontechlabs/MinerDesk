@@ -1,0 +1,14 @@
+MinerDesk 0.7.4
+=================
+
+Desktop/headless lifecycle
+- minerdesk-headless.exe now stops automatically whenever MinerDesk Desktop really exits on Windows.
+- Covers tray Quit, normal window close when close-to-tray is disabled, Alt+F4, and normal Tauri/Windows exit requests.
+- A Desktop heartbeat watchdog also handles forced termination/crashes by stopping miners and the headless backend after repeated missed heartbeats.
+- Active miners are stopped first through the backend shutdown endpoint.
+- Close-to-tray still hides the window without stopping the backend.
+- The legacy stop_backend_on_desktop_exit setting is kept only for config compatibility and no longer controls shutdown.
+
+Installer reliability
+- Added an NSIS pre-install hook that stops an existing MinerDesk Privileged Backend task/process before installation files are replaced.
+- Prevents upgrades from failing because minerdesk-headless.exe is still open/locked.

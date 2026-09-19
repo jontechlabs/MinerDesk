@@ -1,0 +1,59 @@
+MinerDesk 0.7.21 - Windows build: Desktop + windowless backend + Headless CLI + Setup.exe
+
+PREREQUISITES
+- Windows 10/11 x64
+- Node.js LTS
+- Rust stable-msvc
+- Visual Studio Build Tools 2022 with "Desktop development with C++"
+- Microsoft Edge WebView2 Runtime (normally already installed on Windows 10/11)
+
+STEPS
+1. Open PowerShell in the MinerDesk 0.7.21 source directory.
+2. Install development dependencies:
+
+   npm install --include=dev
+
+3. Optional development test:
+
+   npm run tauri:dev
+
+4. Build both executables and the NSIS installer:
+
+   Set-ExecutionPolicy -Scope Process Bypass
+   .\scripts\build-windows.ps1
+
+OUTPUT
+Ready-to-distribute files are copied to:
+
+   publish\windows-x64\
+
+Expected files:
+- MinerDesk.exe                  -> native Tauri desktop application
+- minerdesk-headless.exe         -> CLI/headless web server
+- MinerDesk_*_x64-setup.exe      -> NSIS installer (exact filename may vary)
+
+INSTALLATION
+Run the generated *-setup.exe. The Setup can:
+- install MinerDesk per-machine under Program Files;
+- install minerdesk-headless.exe next to the desktop app;
+- optionally add the install directory to the system PATH;
+- enable MinerDesk-managed outbound firewall rules for mining engines;
+- optionally add the managed miner directory to Microsoft Defender exclusions;
+- install the privileged background backend used for GPU tuning, schedules and power actions.
+
+HEADLESS CLI
+After installation, open a NEW terminal if the Setup changed PATH:
+
+   minerdesk-headless.exe --help
+   minerdesk-headless.exe --listen 127.0.0.1 --port 17888
+
+LAN example:
+
+   minerdesk-headless.exe --listen 0.0.0.0 --port 17888 --token YOUR_LONG_RANDOM_TOKEN
+
+DESKTOP WEB UI
+The desktop application connects to the privileged headless backend, which serves the same web UI/API. Configure the port and LAN binding in:
+
+   Settings -> Web interface & headless
+
+Do not expose MinerDesk directly to the public Internet. Prefer a VPN such as Tailscale or WireGuard.

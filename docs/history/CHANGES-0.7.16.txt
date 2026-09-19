@@ -1,0 +1,19 @@
+MinerDesk 0.7.16
+==================
+
+Windows Setup / process ownership
+- Fixed a false-positive "Setup could not close MinerDesk completely" failure when only the NSIS Setup bootstrap/elevated worker was running.
+- Root cause: installer/uninstaller guards used process-name checks such as Get-Process -Name MinerDesk. Task Manager can group the NSIS Setup chain under the MinerDesk product name, so name-based ownership is not reliable.
+- Setup, upgrade cleanup and uninstall now identify MinerDesk Desktop and the installed headless backend only by their exact executable paths under the resolved install directory.
+- Stop/verify logic uses those same exact paths, preventing Setup from killing or waiting on its own process chain.
+- A standalone minerdesk-headless.exe launched from a different directory is not stopped by installation/upgrade maintenance.
+- MinerDesk-managed miners under C:\ProgramData\MinerDesk\miners are still stopped during maintenance as intended.
+- Legacy migration logging now records MinerDesk-looking processes with PID, parent PID, name and executable path for future diagnostics.
+
+Build workflow
+- The supported distribution workflow is unchanged and explicitly documented:
+    Set-ExecutionPolicy -Scope Process Bypass
+    .\scripts\build-windows.ps1
+- scripts\build-windows.ps1 already compiles the frontend, headless binary, desktop binary and NSIS Setup. It does not launch the generated Setup.
+
+All previous 0.7.15/0.7.9/0.7.8 fixes remain included.

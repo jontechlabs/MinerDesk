@@ -1,0 +1,20 @@
+MinerDesk 0.7.13 build notes
+=============================
+
+Build on Windows:
+  npm run tauri:build:setup
+
+Expected output:
+  publish\windows-x64\MinerDesk.exe
+  publish\windows-x64\minerdesk-headless.exe
+  publish\windows-x64\MinerDesk_0.7.13_x64-setup.exe
+
+Migration test from the currently installed broken/legacy version:
+1. Leave the old MinerDesk installed.
+2. Launch the 0.7.13 Setup.
+3. Before Tauri's normal "Already installed" page can invoke the old uninstaller, 0.7.13 should show its own confirmation that an older MinerDesk was found.
+4. Choose Yes. The helper stops MinerDesk/headless/miners and removes only old application/integration files. AppData settings and downloaded miners are preserved.
+5. The built-in "Already installed" page should then be skipped because the old uninstall key is gone, and installation should continue normally.
+6. If anything fails, inspect %TEMP%\MinerDesk-legacy-upgrade.log.
+
+This source was prepared outside Windows, so the final Rust/NSIS build must be exercised on Windows.

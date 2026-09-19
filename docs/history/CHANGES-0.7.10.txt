@@ -1,0 +1,17 @@
+MinerDesk 0.7.10
+==================
+
+Windows installer / uninstaller maintenance fix
+- Setup now checks for MinerDesk Desktop, minerdesk-headless, the privileged backend task, and managed miners in .onGUIInit, before Tauri can invoke an older installed uninstaller.
+- This allows upgrades from 0.7.9 to stop the running app/backend first instead of handing a live installation to the old uninstall hook.
+- The user is asked before any running MinerDesk/mining process is force-closed.
+- Desktop is terminated without taskkill /T so a maintenance process launched from MinerDesk is not accidentally killed as a descendant.
+- Headless still uses process-tree termination, with an additional ProgramData managed-miner fallback.
+- New uninstall cleanup is split into short verified phases instead of one monolithic PowerShell command.
+- Scheduled Task removal happens only after Desktop/headless/managed miners are verified stopped.
+- Added scripts/stop-minerdesk-maintenance.ps1 for manual recovery/diagnostics.
+
+0.7.9 mining-session fixes are retained
+- STOP resets uptime to 00:00:00.
+- Start/Restart saves the latest profile before launch.
+- lpminer receives the current --lock-core-clock value.

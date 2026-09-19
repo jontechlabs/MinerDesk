@@ -1,0 +1,12 @@
+MinerDesk 0.7.14
+==================
+
+Windows legacy-upgrade launcher reliability
+- Fixes 0.7.13 installer failures reported as `code error` before legacy cleanup started.
+- Replaces the fragile nsExec PowerShell launch for legacy migration with NSIS ExecWait and a numeric exit code.
+- Creates %TEMP%\MinerDesk-legacy-upgrade.log before PowerShell is launched, so a diagnostic file is guaranteed whenever the legacy migration path is entered.
+- Passes the exact log path to legacy-upgrade-cleanup.ps1.
+- Adds explicit diagnostics for missing embedded helper and PowerShell launch failures.
+- Legacy cleanup detection now includes installed version 0.7.13.
+
+All 0.7.9-0.7.13 fixes remain included.

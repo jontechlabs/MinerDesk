@@ -1,0 +1,12 @@
+MinerDesk 0.7.0 - voluntary developer tip
+
+- Added a prominent, optional Dev tip (%) field to every mining profile.
+- Default value is 0.0%; backend hard-clamps effective tip to 0..10%.
+- Animated support indicator changes with the selected percentage.
+- Public developer payout addresses included for PRL, NOCK, EVM, XELIS, Nirmata, Ergo, Kaspa, Nexa, Monero and Flux.
+- Automatic payout-network detection from wallet format plus algorithm/pool hints.
+- PRL merge-mining profiles automatically use the developer PRL+NOCK pair during dev-tip slices.
+- Unsupported/ambiguous networks are skipped; no reward is redirected.
+- Dev tip is implemented as transparent time slicing. User mining time accrues support credit, then MinerDesk performs short developer-wallet slices and returns automatically.
+- Dashboard shows a visible DEV TIP badge only while a developer slice is active.
+- Existing 0.6.9 profiles remain compatible through serde defaults and default to 0%.

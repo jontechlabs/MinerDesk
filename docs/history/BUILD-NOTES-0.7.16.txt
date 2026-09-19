@@ -1,0 +1,33 @@
+MinerDesk 0.7.16 build notes
+=============================
+
+Canonical Windows distribution build
+------------------------------------
+Open PowerShell in the source directory and run:
+
+  Set-ExecutionPolicy -Scope Process Bypass
+  .\scripts\build-windows.ps1
+
+Do not manually replace that with a direct `tauri build --bundles nsis` distribution build. The script first rebuilds minerdesk-headless.exe and embeds the matching binary before invoking Tauri/NSIS.
+
+Expected output
+---------------
+  publish\windows-x64\MinerDesk.exe
+  publish\windows-x64\minerdesk-headless.exe
+  publish\windows-x64\MinerDesk_0.7.16_x64-setup.exe
+
+0.7.16 regression test
+----------------------
+1. Build with scripts\build-windows.ps1.
+2. Keep an older MinerDesk installation registered (0.7.3 through 0.7.15).
+3. Close the installed Desktop and any miner normally.
+4. Launch MinerDesk_0.7.16_x64-setup.exe from the publish folder.
+5. In Task Manager it is normal to see the NSIS setup bootstrap/elevated worker grouped under the MinerDesk product name.
+6. Setup must NOT report that MinerDesk is still running merely because those installer processes exist.
+7. If the real installed C:\Program Files\MinerDesk\MinerDesk.exe is running, Setup should still detect it, ask permission, stop that exact executable, stop the installed headless backend and managed miners, and continue.
+
+Diagnostic log for legacy migration
+-----------------------------------
+  C:\ProgramData\MinerDesk\logs\legacy-upgrade.log
+
+The log records observed MinerDesk-looking processes with PID/PPID/name/path. Only exact installed executable paths are treated as Desktop/headless ownership.

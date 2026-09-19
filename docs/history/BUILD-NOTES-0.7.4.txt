@@ -1,0 +1,25 @@
+MinerDesk 0.7.4 - build notes
+================================
+
+This archive contains the patched source code.
+
+Windows recommended build command (from the project root):
+  npm run tauri:build:setup
+
+That script rebuilds minerdesk-headless.exe first, copies the freshly built binary
+into src-tauri/resources, then builds the Tauri/NSIS Setup package.
+
+Important:
+- src-tauri/resources/minerdesk-headless.exe in this source archive is the binary
+  that was present in the uploaded 0.7.3 source package. It is intentionally not
+  claimed to contain the 0.7.4 code because this environment does not have a Rust
+  Windows toolchain.
+- Do not distribute a Setup built directly from the stale resource binary. Use
+  npm run tauri:build:setup so the 0.7.4 headless executable is rebuilt first.
+
+Main 0.7.4 lifecycle changes:
+- real Desktop exits always request graceful backend shutdown;
+- Desktop heartbeat watchdog handles crashes/forced termination;
+- close-to-tray remains a hide operation and keeps mining running;
+- NSIS pre-install stops an old headless process before replacing files, avoiding
+  the "Error opening file for writing: minerdesk-headless.exe" upgrade failure.

@@ -1,0 +1,63 @@
+name: Build and checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    name: Windows x64 · tests and NSIS
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - run: npm ci --include=dev
+      - run: npm test
+      - name: Canonical Windows release build (does not run installer)
+        shell: powershell
+        run: .\scripts\build-windows.ps1
+      - name: Rust library tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-x64
+          path: publish/windows-x64/
+          if-no-files-found: error
+          retention-days: 14
+  linux:
+    name: Linux x64 · tests and compilation
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - name: Tauri Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev python3-lxml
+      - run: npm ci --include=dev
+      - run: npm test
+      - run: npm run build
+      - name: Source invariants
+        run: |
+          python3 tests/verify_installer_sources.py
+          python3 tests/verify_task_restart_policy.py
+          python3 tests/verify_windowless_scheduler_sources.py
+      - run: cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+      - name: Compile desktop and standalone CLI
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --bin minerdesk --bin minerdesk-headless
