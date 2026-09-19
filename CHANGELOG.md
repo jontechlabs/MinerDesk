@@ -4,6 +4,7 @@
 
 - Fix LAN authentication bypass: discard client-supplied local-trust headers and derive local access from the actual connection peer. Add middleware tests for remote IPv4/IPv6, duplicate headers and legitimate loopback access.
 - Split shared, Windows and Linux Tauri configuration while preserving the NSIS settings and both Windows backend resources.
+- Declare all Cargo executable targets explicitly so Linux packages include the standalone CLI instead of relying on Tauri's directory scan.
 - Add clean-checkout Windows resource preparation, reproducible dependency lockfiles, Linux build script, Windows/Linux CI, release checksums and publication documentation.
 - Replace the accumulated README with current installation/use guides, a French introduction and real application screenshots.
 - Preserve all 0.7.21 mining and scheduling behavior. Adjust a synthetic installer-test path so the test does not require an `F:` drive.

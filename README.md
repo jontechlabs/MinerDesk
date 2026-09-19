@@ -35,7 +35,8 @@ Open [the latest release](https://github.com/jontechlabs/MinerDesk/releases/late
 | --- | --- | --- |
 | Windows 10/11 x64 | `MinerDesk_0.7.22_x64-setup.exe` | Recommended desktop installation, including both backends. |
 | Windows x64 | `MinerDesk_0.7.22_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
-| Debian-compatible Linux x64 | `MinerDesk_0.7.22_amd64.deb` | Desktop package; install with `sudo apt install ./MinerDesk_0.7.22_amd64.deb`. |
+| Debian-compatible Linux x64 | `MinerDesk_0.7.22_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.22_amd64.deb`. |
+| Linux x64 | `MinerDesk_0.7.22_amd64.AppImage` | Application image; make executable before launching. |
 | Linux x64 | `MinerDesk_0.7.22_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
 
 Verify downloads against `SHA256SUMS.txt` in the release. Builds are **unsigned**; a checksum verifies the downloaded bytes, not the identity of a publisher. Linux compatibility and exact validation are recorded in the release notes. macOS and ARM packages are not provided.

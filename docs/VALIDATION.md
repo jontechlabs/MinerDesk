@@ -10,9 +10,26 @@ Source baseline: the author's 0.7.21 manual-start-command-fix archive. The 0.7.2
 - Windows PowerShell source/fixture checks: installer safety (35 assertions), task settings (28), windowless backend (15).
 - Windows configuration overlay preserves both resource paths and the original NSIS install mode, languages and hook.
 
-## Release build validation
+## Release build validation completed
 
-Linux release compilation and packaging, Windows CI compilation/packaging, repository secret scanning and final asset verification are completed before publishing the release. The release notes provide the final build provenance and verification results.
+Compiled application source: `bfdd4858b11d6ef22d83ecd7671713c5f20beaa1`. Subsequent publication edits only update documentation. [Windows and Linux CI run](https://github.com/jontechlabs/MinerDesk/actions/runs/35446343904): **success** for both jobs.
+
+| Check | Result |
+| --- | --- |
+| Windows Server 2022 canonical release build | Desktop, both backends and NSIS installer compiled successfully. |
+| Windows executable metadata | All four files report 0.7.22; desktop/backend/CLI are x64. Desktop and backend use GUI subsystem 2; CLI uses console subsystem 3. |
+| Windows tests | 19 Node tests and 23 Rust library tests pass. Installer preflight: 36 assertions in CI; task settings: 28; windowless backend: 15. The standalone Rust scheduler/worker checks pass too. |
+| Windows CLI smoke check | Downloaded `minerdesk-headless.exe --version` exits successfully and prints 0.7.22, before loading runtime configuration. |
+| Ubuntu 22.04 CI | Frontend build, Node/source checks, Cargo check/tests, desktop and CLI compilation pass. |
+| Debian 12 release build | Desktop/CLI, `.deb` and AppImage compile successfully using Node 24.21.0 and Rust 1.98.1 in Docker under WSL2. |
+| Debian package | Final package installs in the isolated container; its file list contains desktop, standalone CLI and compatibility backend. Shared library resolution succeeds. |
+| Desktop/AppImage smoke checks | Each starts as a non-root user in a virtual X display and exposes its 0.7.22 local backend. |
+| Headless HTTP checks | Embedded frontend, health, engine list and status work; valid token and bearer access work; missing/invalid tokens and a forged locality header are rejected over a non-loopback connection. |
+| Headless shutdown | SIGINT exits cleanly with status 0. |
+| Secret scan | Gitleaks reports no leaks in the source directory or the two source commits. No personal config, logs, tokens, downloaded engines or generated executables are tracked. |
+| Publication assets | Windows files match the CI build's hashes. Release assets include SHA-256 checksums and sanitized build provenance. |
+
+The original Windows NSIS options/resource paths match the supplied 0.7.21 archive after merging the platform overlay. All new package targets use the same original application entry points.
 
 ## Limits
 
