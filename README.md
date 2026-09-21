@@ -2,13 +2,16 @@
   <img src="src-tauri/icons/128x128.png" width="80" alt="MinerDesk icon">
   <h1>MinerDesk</h1>
   <p><strong>Your miners. Your schedule. One dashboard.</strong></p>
-  <p>A desktop and headless control center for configuring, launching and monitoring multiple mining engines.</p>
+  <p>Manage GPU mining profiles, monitor sessions and schedule mining hours on your Windows or Linux PC.</p>
+  <p>Free and open source · Optional developer tip: 0% by default · Mining engines downloaded separately</p>
   <p>
     <a href="https://github.com/jontechlabs/MinerDesk/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/jontechlabs/MinerDesk?color=44d7b6"></a>
     <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-44d7b6"></a>
     <a href="https://github.com/jontechlabs/MinerDesk/actions/workflows/ci.yml"><img alt="Build and checks" src="https://github.com/jontechlabs/MinerDesk/actions/workflows/ci.yml/badge.svg"></a>
   </p>
   <p><a href="https://github.com/jontechlabs/MinerDesk/releases/latest"><strong>Download</strong></a> · <a href="#get-started">Get started</a> · <a href="docs/README.fr.md">Français</a> · <a href="CHANGELOG.md">Changelog</a></p>
+  <p><a href="https://github.com/jontechlabs/MinerDesk/releases/download/v0.7.22/MinerDesk_0.7.22_x64-setup.exe"><strong>Windows installer — 0.7.22</strong></a> · <a href="https://github.com/jontechlabs/MinerDesk/releases/download/v0.7.22/MinerDesk_0.7.22_amd64.deb"><strong>Linux .deb — 0.7.22</strong></a> · <a href="https://github.com/jontechlabs/MinerDesk/releases/latest">Other downloads & checksums</a></p>
+  <p><a href="https://youtu.be/NFa6s8z84Xk">Watch the 2-minute English demo</a> · <a href="https://youtu.be/KBOYEVBF9Ic">Voir la démo en français</a> · <a href="docs/TRY-MINERDESK.md">Try one profile</a></p>
 </div>
 
 ![MinerDesk dashboard showing four profiles, one active engine, power, temperature and per-profile controls](docs/images/dashboard.png)
@@ -16,6 +19,8 @@
 ## Why MinerDesk?
 
 Keep your pool settings, GPU choices and schedules in one place instead of maintaining a collection of launch scripts. See what is running, stop it when you need your GPU, and let recurring schedules handle the next session.
+
+Start with MinerDesk if you already mine on a Windows or Linux machine and want saved profiles, scheduled hours and a shared dashboard for your engines. For Pearl / PRL, check your engine's current GPU, algorithm and pool requirements; MinerDesk manages that engine rather than replacing it.
 
 | When you want to… | MinerDesk helps you… |
 | --- | --- |
@@ -51,6 +56,8 @@ Verify downloads against `SHA256SUMS.txt` in the release. Builds are **unsigned*
 6. Add a weekly window under **Schedules** if you want recurring sessions.
 
 The optional developer tip is **0% by default**, visible and selectable per profile. It can be disabled at any time. Third-party mining engines may have their own fees and licenses.
+
+**Trying it for the first time?** Follow the [one-profile walkthrough](docs/TRY-MINERDESK.md), then [share your setup and what worked](https://github.com/jontechlabs/MinerDesk/issues/new?template=setup_report.yml). Reports of installation problems are just as useful as successful sessions. If MinerDesk helps you, a GitHub star helps others discover and revisit the project.
 
 ## Features
 
