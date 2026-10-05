@@ -26,9 +26,24 @@ function Assert-MdSignatureResult {
     if (-not $Signature.TimeStamperCertificate) { throw "No trusted timestamp in $Path" }
 }
 
+function Get-MdAuthenticodeSignature {
+    param([string]$Path)
+    if ([IO.Path]::GetExtension($Path) -ine '.tmp') { return Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop }
+    # NSIS writes these exact signed bytes later as uninstall.exe. Verify them
+    # with the PE extension expected by the Windows SIP provider, without
+    # changing any bytes or accepting an untrusted/test certificate.
+    $verificationCopy = Join-Path ([IO.Path]::GetTempPath()) ('md-uninstaller-verify-' + [guid]::NewGuid().ToString('N') + '.exe')
+    try {
+        Copy-Item -LiteralPath $Path -Destination $verificationCopy
+        return Get-AuthenticodeSignature -LiteralPath $verificationCopy -ErrorAction Stop
+    } finally {
+        if (Test-Path -LiteralPath $verificationCopy) { Remove-Item -LiteralPath $verificationCopy -Force }
+    }
+}
+
 function Get-MdVerifiedSignature {
     param([string]$Path, [string]$ExpectedPublisher)
-    $signature = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
+    $signature = Get-MdAuthenticodeSignature -Path $Path
     Assert-MdSignatureResult -Signature $signature -ExpectedPublisher $ExpectedPublisher -Path $Path
     [ordered]@{
         file = [IO.Path]::GetFileName($Path)

@@ -13,6 +13,7 @@ Once accepted and the first signed build has been verified, update this status a
 - Author, reviewer and proposed signing approver: [jontechlabs](https://github.com/jontechlabs), the repository maintainer. External contributions require maintainer review before integration. Enable MFA on GitHub and SignPath before requesting production signing.
 - Only source-built MinerDesk programs, its NSIS installer/uninstaller and its two installer maintenance scripts may be signed with the project certificate.
 - The two backends and maintenance scripts are signed **before** they are embedded in the installer. Tauri's custom signing command signs the desktop, NSIS uninstaller and final installer. Each returned file must have a valid, timestamped Authenticode signature from the configured publisher.
+- NSIS supplies its uninstaller as a temporary `nstXXXX.tmp` PE. The hook submits the same bytes as `MinerDesk-uninstaller.exe`, verifies the returned signature, and restores the signed bytes to NSIS's temporary path. It never executes the installer during signing.
 - Third-party mining engines are downloaded separately at the user's request and are **not** signed or endorsed by MinerDesk or the Foundation. NSIS's upstream plugins retain their upstream signature state; the hook checks their copies against Tauri's toolchain cache instead of signing them as our own code.
 - Signing credentials stay in a GitHub environment secret. The provider holds the certificate's private key. Wallet recovery files are unrelated and must never enter the signing system or repository.
 

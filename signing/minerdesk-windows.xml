@@ -4,8 +4,8 @@
     <parameter name="version" required="true" />
   </parameters>
   <zip-file>
-    <!-- NSIS gives its uninstaller a temporary EXE filename. Metadata must
-         still identify MinerDesk and the exact version requested for signing. -->
+    <!-- The hook maps NSIS's temporary .tmp PE to MinerDesk-uninstaller.exe
+         in the artifact. Metadata must identify MinerDesk and the version. -->
     <pe-file path="*.exe" min-matches="0" max-matches="unbounded"
              product-name="MinerDesk" product-version="${version}">
       <authenticode-sign hash-algorithm="sha256" description="MinerDesk"

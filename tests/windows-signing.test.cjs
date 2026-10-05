@@ -39,6 +39,16 @@ test('provider action failure stops signing', () => {
   fs.writeFileSync(failure, 'process.exit(7);');
   assert.throws(() => runAction(failure, {}, env, path.join(temp, 'outputs')), /no unsigned fallback/);
 });
+test('NSIS temporary PE gets an EXE artifact name while retaining its destination path', () => {
+  const uninstaller = path.join(temp, 'nst3399.tmp');
+  fs.writeFileSync(uninstaller, 'MZsynthetic-test-PE');
+  assert.deepEqual(prepareRequest([uninstaller], env), [{ file: uninstaller, name: 'MinerDesk-uninstaller.exe' }]);
+  fs.writeFileSync(uninstaller, 'recovery text is not an executable');
+  assert.throws(() => prepareRequest([uninstaller], env), /not a PE executable/);
+  const arbitrary = path.join(temp, 'private.tmp');
+  fs.writeFileSync(arbitrary, 'MZ');
+  assert.throws(() => prepareRequest([arbitrary], env), /Unsupported/);
+});
 test('action inputs and output channel remain scoped to the child process', () => {
   const check = path.join(temp, 'check.cjs');
   fs.writeFileSync(check, `const fs=require('node:fs'); if(process.env.INPUT_UNRELATED)process.exit(2);

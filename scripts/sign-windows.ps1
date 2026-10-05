@@ -18,13 +18,13 @@ if ($resolved.Count -eq 1 -and [IO.Path]::GetExtension($resolved[0]) -ieq '.dll'
 }
 $toSign = @()
 foreach ($file in $resolved) {
-    if ([IO.Path]::GetExtension($file) -ieq '.exe') {
+    if ([IO.Path]::GetExtension($file) -in @('.exe', '.tmp')) {
         $metadata = [Diagnostics.FileVersionInfo]::GetVersionInfo($file)
         if ($metadata.ProductName -cne 'MinerDesk' -or $metadata.ProductVersion -cne $env:MD_SIGNING_VERSION) {
             throw "Unexpected product metadata in $file"
         }
     }
-    $existing = Get-AuthenticodeSignature -LiteralPath $file
+    $existing = Get-MdAuthenticodeSignature -Path $file
     try { Assert-MdSignatureResult -Signature $existing -ExpectedPublisher $env:MD_SIGNING_PUBLISHER -Path $file }
     catch { $toSign += $file }
 }
@@ -46,7 +46,7 @@ try {
             'maintenance-common.ps1' { 'maintenance-common' }
             default {
                 if ([IO.Path]::GetFileName($file) -like 'MinerDesk_*_x64-setup.exe') { 'installer' }
-                elseif ([IO.Path]::GetExtension($file) -ieq '.exe') { 'nsis-uninstaller' }
+                elseif ([IO.Path]::GetExtension($file) -in @('.exe', '.tmp')) { 'nsis-uninstaller' }
                 else { throw 'Unexpected first-party signing target.' }
             }
         }

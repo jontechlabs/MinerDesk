@@ -18,7 +18,7 @@ try {
     }
     $uninstaller = @($records | Where-Object { $_.extension -ine '.dll' -and $_.name -inotlike 'minerdesk*' })
     if ($uninstaller.Count -ne 1) { throw 'Expected exactly one temporary NSIS uninstaller signing callback.' }
-    if ($uninstaller[0].extension -ine '.exe') { throw "Uninstaller callback extension needs handling: $($uninstaller[0].extension)" }
+    if ($uninstaller[0].extension -notin @('.exe', '.tmp')) { throw "Unexpected uninstaller callback extension: $($uninstaller[0].extension)" }
     Write-Host 'PASS: real Tauri desktop/resources/installer/uninstaller callbacks and upstream plugin handling. Outputs are unsigned test fixtures.'
 } finally {
     if (Test-Path -LiteralPath $config) { Remove-Item -LiteralPath $config -Force }

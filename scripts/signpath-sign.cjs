@@ -21,7 +21,17 @@ function prepareRequest(files, env) {
   const names = new Set();
   return files.map(file => {
     if (!path.isAbsolute(file) || !fs.statSync(file).isFile()) throw new Error('Signing requires existing absolute file paths.');
-    const name = path.basename(file);
+    let name = path.basename(file);
+    // NSIS !uninstfinalize supplies nstXXXX.tmp, which is a PE executable.
+    // Give that one file an EXE name inside the submitted artifact, then copy
+    // the signed bytes back to the exact temporary path expected by NSIS.
+    if (/^nst[0-9a-f]+\.tmp$/i.test(name)) {
+      const handle = fs.openSync(file, 'r');
+      const header = Buffer.alloc(2);
+      try { fs.readSync(handle, header, 0, 2, 0); } finally { fs.closeSync(handle); }
+      if (header.toString('ascii') !== 'MZ') throw new Error('Temporary NSIS file is not a PE executable.');
+      name = 'MinerDesk-uninstaller.exe';
+    }
     if (!/\.(exe|ps1)$/i.test(name) || names.has(name.toLowerCase())) throw new Error('Unsupported or duplicate signing filename.');
     names.add(name.toLowerCase());
     return { file, name };
