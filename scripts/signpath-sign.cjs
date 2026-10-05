@@ -42,8 +42,24 @@ function runAction(script, inputs, env, outputFile) {
   const childEnv = Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('INPUT_')));
   for (const [key, value] of Object.entries(inputs)) childEnv[`INPUT_${key.toUpperCase()}`] = String(value);
   childEnv.GITHUB_OUTPUT = outputFile;
+  // @actions/core requires this file to exist before setOutput appends to it.
+  fs.writeFileSync(outputFile, '');
   const result = spawnSync(process.execPath, [script], { env: childEnv, stdio: 'inherit' });
   if (result.error || result.status !== 0) throw new Error('Official signing/upload action failed; no unsigned fallback.');
+}
+function readActionOutput(contents, name) {
+  const lines = contents.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith(`${name}=`)) return lines[i].slice(name.length + 1);
+    if (lines[i].startsWith(`${name}<<`)) {
+      const delimiter = lines[i].slice(name.length + 2);
+      const value = [];
+      while (++i < lines.length && lines[i] !== delimiter) value.push(lines[i]);
+      if (i === lines.length) throw new Error('Incomplete GitHub action output record.');
+      return value.join('\n');
+    }
+  }
+  return undefined;
 }
 function main(requestFile) {
   const files = prepareRequest(JSON.parse(fs.readFileSync(requestFile, 'utf8').replace(/^\uFEFF/, '')), process.env);
@@ -60,8 +76,8 @@ function main(requestFile) {
       name: `signing-${crypto.randomUUID()}`, path: inputDir, 'if-no-files-found': 'error', 'retention-days': 1,
       'compression-level': 0, overwrite: false, 'include-hidden-files': false
     }, process.env, uploadOutput);
-    const id = fs.readFileSync(uploadOutput, 'utf8').match(/^artifact-id=(\d+)\r?$/m)?.[1];
-    if (!id) throw new Error('GitHub did not return an artifact ID.');
+    const id = readActionOutput(fs.readFileSync(uploadOutput, 'utf8'), 'artifact-id');
+    if (!id || !/^\d+$/.test(id)) throw new Error('GitHub did not return an artifact ID.');
     runAction(path.join(process.env.MD_SIGNING_TOOLS, 'signpath', 'index.js'), {
       'connector-url': 'https://pipelineconnector.connectors.signpath.io/GitHubActions/GitHubCom',
       'api-token': process.env.SIGNPATH_API_TOKEN, 'github-token': process.env.GITHUB_TOKEN,
@@ -91,7 +107,7 @@ function main(requestFile) {
     fs.rmSync(temp, { recursive: true, force: true });
   }
 }
-module.exports = { prepareRequest, runAction };
+module.exports = { prepareRequest, runAction, readActionOutput };
 if (require.main === module) {
   try { main(process.argv[2]); }
   catch (error) { console.error(error.message); process.exitCode = 1; }

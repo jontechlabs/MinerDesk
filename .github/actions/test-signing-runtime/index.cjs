@@ -2,7 +2,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { runAction } = require('../../../scripts/signpath-sign.cjs');
+const { runAction, readActionOutput } = require('../../../scripts/signpath-sign.cjs');
 try {
   if (!process.env.ACTIONS_RUNTIME_TOKEN || !process.env.ACTIONS_RESULTS_URL) throw new Error('GitHub artifact runtime is unavailable.');
   const temp = process.env.RUNNER_TEMP;
@@ -15,7 +15,8 @@ try {
       name: 'signing-uploader-test', path: fixture, 'if-no-files-found': 'error', 'retention-days': 1,
       'compression-level': 0, overwrite: false, 'include-hidden-files': false
     }, process.env, output);
-    if (!/^artifact-id=\d+\r?$/m.test(fs.readFileSync(output, 'utf8'))) throw new Error('No GitHub artifact ID returned.');
+    const id = readActionOutput(fs.readFileSync(output, 'utf8'), 'artifact-id');
+    if (!id || !/^\d+$/.test(id)) throw new Error('No GitHub artifact ID returned.');
     console.log('PASS: the actual official uploader works inside the signing callback runtime.');
   } finally {
     for (const file of [fixture, output]) if (fs.existsSync(file)) fs.unlinkSync(file);

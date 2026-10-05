@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { prepareRequest, runAction } = require('../scripts/signpath-sign.cjs');
+const { prepareRequest, runAction, readActionOutput } = require('../scripts/signpath-sign.cjs');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'md-signing-test-'));
 const sample = path.join(temp, 'MinerDesk.exe');
 fs.writeFileSync(sample, 'fixture');
@@ -51,10 +51,17 @@ test('NSIS temporary PE gets an EXE artifact name while retaining its destinatio
 });
 test('action inputs and output channel remain scoped to the child process', () => {
   const check = path.join(temp, 'check.cjs');
-  fs.writeFileSync(check, `const fs=require('node:fs'); if(process.env.INPUT_UNRELATED)process.exit(2);
+  fs.writeFileSync(check, `const fs=require('node:fs'); if(!fs.existsSync(process.env.GITHUB_OUTPUT))process.exit(4); if(process.env.INPUT_UNRELATED)process.exit(2);
     if(process.env.INPUT_NAME!=='fixture')process.exit(3); fs.writeFileSync(process.env.GITHUB_OUTPUT,'artifact-id=123\\n');`);
   const output = path.join(temp, 'outputs');
   runAction(check, { name: 'fixture' }, { ...env, INPUT_UNRELATED: 'do-not-inherit' }, output);
   assert.equal(fs.readFileSync(output, 'utf8'), 'artifact-id=123\n');
   assert.equal(process.env.INPUT_NAME, undefined);
+});
+test('artifact IDs support the official multiline GitHub file-command format', () => {
+  const output = 'artifact-url<<url_delimiter\r\nhttps://example.test\r\nurl_delimiter\r\nartifact-id<<ghadelimiter_test\r\n123\r\nghadelimiter_test\r\n';
+  assert.equal(readActionOutput(output, 'artifact-id'), '123');
+  assert.equal(readActionOutput('artifact-id=456\n', 'artifact-id'), '456');
+  assert.equal(readActionOutput(output, 'absent'), undefined);
+  assert.throws(() => readActionOutput('artifact-id<<unterminated\n123', 'artifact-id'), /Incomplete/);
 });
