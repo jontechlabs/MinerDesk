@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <!-- NSIS gives its uninstaller a temporary EXE filename. Metadata must
+         still identify MinerDesk and the exact version requested for signing. -->
+    <pe-file path="*.exe" min-matches="0" max-matches="unbounded"
+             product-name="MinerDesk" product-version="${version}">
+      <authenticode-sign hash-algorithm="sha256" description="MinerDesk"
+                         description-url="https://github.com/jontechlabs/MinerDesk" />
+    </pe-file>
+    <powershell-file path="maintenance.ps1" min-matches="0">
+      <authenticode-sign hash-algorithm="sha256" />
+    </powershell-file>
+    <powershell-file path="maintenance-common.ps1" min-matches="0">
+      <authenticode-sign hash-algorithm="sha256" />
+    </powershell-file>
+  </zip-file>
+</artifact-configuration>

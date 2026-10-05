@@ -1,0 +1,5 @@
+name: Build signed MinerDesk Windows packages
+description: Run the canonical build with GitHub artifact runtime credentials for SignPath origin verification.
+runs:
+  using: node24
+  main: index.cjs
