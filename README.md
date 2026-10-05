@@ -33,11 +33,11 @@ Open [the latest release](https://github.com/jontechlabs/MinerDesk/releases/late
 
 | Platform | Asset | Use |
 | --- | --- | --- |
-| Windows 10/11 x64 | `MinerDesk_0.7.22_x64-setup.exe` | Recommended desktop installation, including both backends. |
-| Windows x64 | `MinerDesk_0.7.22_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
-| Debian-compatible Linux x64 | `MinerDesk_0.7.22_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.22_amd64.deb`. |
-| Linux x64 | `MinerDesk_0.7.22_amd64.AppImage` | Application image; make executable before launching. |
-| Linux x64 | `MinerDesk_0.7.22_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
+| Windows 10/11 x64 | `MinerDesk_0.7.23_x64-setup.exe` | Recommended desktop installation, including both backends. |
+| Windows x64 | `MinerDesk_0.7.23_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
+| Debian-compatible Linux x64 | `MinerDesk_0.7.23_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.23_amd64.deb`. |
+| Linux x64 | `MinerDesk_0.7.23_amd64.AppImage` | Application image; make executable before launching. |
+| Linux x64 | `MinerDesk_0.7.23_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
 
 Verify downloads against `SHA256SUMS.txt` in the release. Builds are **unsigned**; a checksum verifies the downloaded bytes, not the identity of a publisher. Linux compatibility and exact validation are recorded in the release notes. macOS and ARM packages are not provided.
 
@@ -53,6 +53,8 @@ Verify downloads against `SHA256SUMS.txt` in the release. Builds are **unsigned*
 The optional developer tip is **0% by default**, visible and selectable per profile. It can be disabled at any time. Third-party mining engines may have their own fees and licenses.
 
 ## Features
+
+**Quantus (QTC):** use an SRBMiner-Multi profile and, from 0.7.23, optional developer support with worker preservation. See the [Quantus setup guide](docs/QUANTUS.md) and [English video tutorial](https://www.youtube.com/watch?v=cCzC8PqDtEI).
 
 - **Multiple profiles:** independent pools, wallets, workers, GPUs, tuning, API ports and advanced arguments.
 - **Live overview:** active profiles, parsed hashrate, power, temperature, shares and uptime, with engine/state filters.
@@ -91,7 +93,7 @@ The scheduler runs in Rust. Closing a browser tab does not stop scheduling while
 - Sleep/hibernate is blocked by another active window or a manual mining session. When UI confirmation is required, an open confirmation UI is required; cancellation aborts the action.
 - Windows wake timers depend on hardware and power-plan support. Linux sleep/hibernate uses `systemctl` where supported; automatic wake-task creation is Windows-specific.
 
-Screenshots were captured from the author's running **0.7.21 web interface**; 0.7.22 retains that interface. Values show one real session, not a benchmark.
+Screenshots were captured from the author's running **0.7.21 web interface**; 0.7.23 retains that interface. Values show one real session, not a benchmark.
 
 ## Desktop, backend and headless architecture
 

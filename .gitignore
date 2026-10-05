@@ -18,3 +18,8 @@ miners/
 *.p12
 .DS_Store
 *.log
+wallet-backups/
+*recovery-phrase*
+*wallet-password*
+*encrypted-wallet*
+RECOVERY-PRIVATE*

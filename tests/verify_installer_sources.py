@@ -202,8 +202,9 @@ def main():
     package=json.loads((root/'package.json').read_text())
     tauri=json.loads((root/'src-tauri/tauri.conf.json').read_text())
     cargo=re.search(r'^version\s*=\s*"([^"]+)"', (root/'src-tauri/Cargo.toml').read_text(), re.M)[1]
-    assert package['version'] == tauri['version'] == cargo == '0.7.22'
-    ok('Package, Tauri and Rust version metadata agree on 0.7.22')
+    assert package['version'] == tauri['version'] == cargo
+    assert re.fullmatch(r'\d+\.\d+\.\d+', cargo)
+    ok(f'Package, Tauri and Rust version metadata agree on {cargo}')
     build=(root/'scripts/build-windows.ps1').read_text()
     assert '$nativeExit = $LASTEXITCODE' in build
     assert "'tests\\installer-safety.tests.ps1'" in build
