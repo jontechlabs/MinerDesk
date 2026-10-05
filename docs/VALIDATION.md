@@ -1,5 +1,7 @@
 # Publication validation — 0.7.22
 
+**Current release:** see [0.7.23 validation](VALIDATION-0.7.23.md). The report below records the earlier 0.7.22 release.
+
 Source baseline: the author's 0.7.21 manual-start-command-fix archive. The 0.7.22 publication adds the LAN locality-header fix, cross-platform packaging, dependency lockfiles and documentation. Original Windows 0.7.21 executables are not redistributed as corrected builds.
 
 ## Local checks completed
