@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ApiTimeoutError, requestJson } from "./api";
+import { detectDevCoin } from "./devTip";
 import { BulkStartError, runMiningCommand, type MiningAction } from "./minerCommands";
 import { dayNames, languageDirection, LANGUAGES, tr } from "./i18n";
 import type {
@@ -10,7 +11,7 @@ import type {
 
 type Tab = "dashboard" | "miners" | "schedules" | "console" | "settings";
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
-const DESKTOP_VERSION = "0.7.22";
+const DESKTOP_VERSION = "0.7.23";
 
 function resolveApiBase() {
   // Important: Tauri 2 uses an HTTP(S)-looking origin such as
@@ -41,22 +42,6 @@ function formatHashrate(hps: number | null) {
   return `${hps.toFixed(0)} H/s`;
 }
 
-function detectDevCoin(p: MinerProfile): string | null {
-  const wallet = (p.wallet || "").trim().toLowerCase();
-  const algo = (p.algorithm || "").trim().toLowerCase();
-  const pool = (p.pool || "").trim().toLowerCase();
-  if (wallet.startsWith("prl1") || algo.includes("pearl") || pool.includes("pearl")) return "PRL";
-  if (wallet.startsWith("0x")) return "EVM";
-  if (algo === "alph" || algo === "aleph" || algo.includes("alephium") || pool.includes("alephium")) return "ALPH";
-  if (wallet.startsWith("xel:") || algo.includes("xelis") || pool.includes("xelis")) return "XELIS";
-  if (wallet.startsWith("kaspa:") || algo === "kaspa" || pool.includes("kaspa")) return "KASPA";
-  if (wallet.startsWith("nexa:") || algo.includes("nexa") || pool.includes("nexa")) return "NEXA";
-  if (wallet.startsWith("nn") || algo.includes("nirmata") || pool.includes("nirmata")) return "NIRMATA";
-  if (algo.includes("autolykos") || algo === "ergo" || pool.includes("ergo")) return "ERGO";
-  if (algo.includes("randomx") || algo === "monero" || pool.includes("monero") || pool.includes("xmr")) return "MONERO";
-  if (algo.includes("zelhash") || algo === "flux" || pool.includes("flux")) return "FLUX";
-  return null;
-}
 function devTipLevel(v: number) {
   if (v <= 0) return "off";
   if (v < 0.75) return "spark";
@@ -609,7 +594,7 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.22 · multi-miner</span></div></div>
+      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.23 · multi-miner</span></div></div>
       <nav>{(["dashboard","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot"/>{t(x)}</button>)}</nav>
       <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {t("activeMiners").toUpperCase()}</div><div className={`status-pill ${backendStatus?.reachable?"on":"off"}`}><span/>{backendStatus?.reachable?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>

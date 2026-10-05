@@ -37,9 +37,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   linux:
-    name: Linux x64 · tests and compilation
+    name: Linux x64 · tests and release packages
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -50,16 +50,20 @@ jobs:
       - name: Tauri Linux prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev python3-lxml
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev python3-lxml patchelf
       - run: npm ci --include=dev
-      - run: npm test
-      - run: npm run build
       - name: Source invariants
         run: |
           python3 tests/verify_installer_sources.py
           python3 tests/verify_task_restart_policy.py
           python3 tests/verify_windowless_scheduler_sources.py
-      - run: cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets
-      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
-      - name: Compile desktop and standalone CLI
-        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --bin minerdesk --bin minerdesk-headless
+      - name: Build tested desktop, CLI, Debian package and AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: bash scripts/build-linux.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-x64
+          path: publish/linux-x64/
+          if-no-files-found: error
+          retention-days: 14

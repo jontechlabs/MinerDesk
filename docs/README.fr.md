@@ -1,5 +1,7 @@
 # MinerDesk
 
+**Quantus (QTC) :** la version 0.7.23 ajoute le support volontaire QTC, désactivé par défaut (0 %), avec conservation du nom du worker. Consultez le [guide Quantus](QUANTUS.md) et le [tutoriel vidéo en anglais](https://www.youtube.com/watch?v=cCzC8PqDtEI). Seule une adresse publique de réception figure dans l'application ; aucune clé privée ni phrase de récupération n'est distribuée.
+
 **Vos mineurs, vos horaires, un seul tableau de bord.**
 
 MinerDesk centralise les profils, le lancement, la surveillance et la planification de plusieurs moteurs de minage dans une application de bureau et une interface web. C'est un orchestrateur : le minage est effectué par des logiciels tiers téléchargés séparément.
@@ -20,12 +22,12 @@ Les réglages disponibles dépendent du moteur et du matériel. Les statistiques
 
 ## Installation
 
-**Windows 10/11 x64 :** télécharger `MinerDesk_0.7.22_x64-setup.exe` depuis la Release. L'installeur configure le backend privilégié ; l'interface graphique reste exécutée comme utilisateur normal.
+**Windows 10/11 x64 :** télécharger `MinerDesk_0.7.23_x64-setup.exe` depuis la Release. L'installeur configure le backend privilégié ; l'interface graphique reste exécutée comme utilisateur normal.
 
 **Linux x64 compatible Debian :** télécharger le paquet `.deb`, puis :
 
 ```bash
-sudo apt install ./MinerDesk_0.7.22_amd64.deb
+sudo apt install ./MinerDesk_0.7.23_amd64.deb
 ```
 
 Les binaires ne sont pas signés. Comparer leur SHA-256 au fichier `SHA256SUMS.txt` de la Release. Les notes de publication précisent les plateformes et tests réalisés.
@@ -34,7 +36,7 @@ Dans **Miners**, choisir un moteur, renseigner le pool et une adresse publique, 
 
 ![Planificateur MinerDesk](images/schedules.png)
 
-Captures réelles de l'interface web 0.7.21, conservée dans 0.7.22. Les valeurs illustrent une session et ne constituent pas un benchmark.
+Captures réelles de l'interface web 0.7.21, conservée dans 0.7.23. Les valeurs illustrent une session et ne constituent pas un benchmark.
 
 ## Contrôle et sécurité
 

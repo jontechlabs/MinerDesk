@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.23
+
+- Add Quantus (QTC) detection to the frontend and backend and a public receiving address for optional developer support.
+- Preserve `/worker` and `.worker` pool-login suffixes during Quantus support slices; saved user payout addresses and separate worker settings remain unchanged.
+- Keep support disabled by default (0%), exclude custom engines, and avoid merging a secondary payout during a Quantus support slice.
+- Add frontend/Rust regressions for detection, command arguments, user-wallet preservation and existing Pearl merge support.
+- Produce Linux Debian/AppImage packages in CI alongside the Windows installer and executables.
+
 ## 0.7.22
 
 - Fix LAN authentication bypass: discard client-supplied local-trust headers and derive local access from the actual connection peer. Add middleware tests for remote IPv4/IPv6, duplicate headers and legitimate loopback access.

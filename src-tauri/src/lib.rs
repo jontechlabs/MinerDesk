@@ -1533,11 +1533,19 @@ const DEV_WALLET_KASPA: &str = "kaspa:qpsxzw40qqvsmaesauq88zf64h9y8aamjkdgf7mqx6
 const DEV_WALLET_NEXA: &str = "nexa:nqtsq5g5dkpjw57p3us7reu3egaq8475vmk0y8wxae3uattt";
 const DEV_WALLET_MONERO: &str = "47MSeMcp8uBcRbFTc8PpVTFy29UUGtT2uG6W6jRioyUsVxU2tcbzLHFhkgQQxE9CYUSLTpGtbWiWRX1Uw5LgfDWHNWXwxGF";
 const DEV_WALLET_FLUX: &str = "t1YABDpWK7aaazKcji4r7Yxzicyk1ozJkuf";
+const DEV_WALLET_QTC: &str = "qznGSCymL8d9UEpQD2QUfwtp2hQMTzuGM761gfhJYoRD1N1CD";
+
+fn is_quantus_address(wallet: &str) -> bool {
+    let address = wallet.trim().split(['/', '.']).next().unwrap_or("");
+    address.len() == 49 && address.starts_with("qz")
+        && address.bytes().all(|c| b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz".contains(&c))
+}
 
 fn detected_coin_id(p: &MinerProfile) -> Option<&'static str> {
     let wallet = p.wallet.trim().to_ascii_lowercase();
     let algo = p.algorithm.trim().to_ascii_lowercase();
     let pool = p.pool.trim().to_ascii_lowercase();
+    if algo == "quantus" || pool.contains("quantus") || pool.split(['/', ':', '.']).any(|s| s == "qtc") || is_quantus_address(&p.wallet) { return Some("QTC"); }
     if wallet.starts_with("prl1") || algo.contains("pearl") || pool.contains("pearl") { return Some("PRL"); }
     if wallet.starts_with("0x") { return Some("EVM"); }
     if algo == "alph" || algo == "aleph" || algo.contains("alephium") || pool.contains("alephium") { return Some("ALPH"); }
@@ -1564,6 +1572,7 @@ fn dev_wallet_for_coin(coin: &str) -> Option<&'static str> {
         "NEXA" => Some(DEV_WALLET_NEXA),
         "MONERO" => Some(DEV_WALLET_MONERO),
         "FLUX" => Some(DEV_WALLET_FLUX),
+        "QTC" => Some(DEV_WALLET_QTC),
         _ => None,
     }
 }
@@ -1573,7 +1582,22 @@ fn dev_wallet_for_coin(coin: &str) -> Option<&'static str> {
 fn apply_dev_tip_wallets(p: &mut MinerProfile) -> Option<&'static str> {
     if p.engine.eq_ignore_ascii_case("custom") { return None; }
     let coin = detected_coin_id(p)?;
-    p.wallet = dev_wallet_for_coin(coin)?.to_string();
+    let address = dev_wallet_for_coin(coin)?;
+    p.wallet = if coin == "QTC" {
+        // Pool logins may embed a worker after the public receiving address.
+        // Preserve it on the temporary clone, including Kryptex's /worker form.
+        let suffix = p.wallet.trim().find(['/', '.']).map(|i| &p.wallet.trim()[i..]).unwrap_or("");
+        format!("{address}{suffix}")
+    } else {
+        address.to_string()
+    };
+
+    // Quantus is configured as a single-coin SRBMiner profile. Do not infer
+    // another payout network from the primary Quantus algorithm during a tip.
+    if coin == "QTC" {
+        p.merge_secondary = false;
+        return Some(coin);
+    }
 
     if p.merge_secondary && !p.secondary_wallet.trim().is_empty() {
         // LuckyPool PRL merge mining uses PRL+NOCK. For other known secondary
@@ -1596,6 +1620,95 @@ fn apply_dev_tip_wallets(p: &mut MinerProfile) -> Option<&'static str> {
         }
     }
     Some(coin)
+}
+
+#[cfg(test)]
+mod quantus_tip_tests {
+    use super::*;
+
+    fn profile(wallet: &str) -> MinerProfile {
+        MinerProfile { algorithm: "quantus".into(), pool: "qtc.kryptex.network:7049".into(), wallet: wallet.into(), ..MinerProfile::default() }
+    }
+
+    #[test]
+    fn quantus_detection_matches_algorithm_pool_and_ss58_address() {
+        assert_eq!(detected_coin_id(&profile("USER_ADDRESS/QuantusRig")), Some("QTC"));
+        let mut p = profile("USER_ADDRESS");
+        p.algorithm = " POSEIDON2 ".into();
+        p.pool = "stratum+tcp://QTC.kryptex.network:7049".into();
+        assert_eq!(detected_coin_id(&p), Some("QTC"));
+        p.pool = "pool.example:1234".into();
+        assert_eq!(detected_coin_id(&p), None);
+        p.wallet = format!("{DEV_WALLET_QTC}/rig");
+        assert_eq!(detected_coin_id(&p), Some("QTC"));
+        p.wallet = "qz-not-an-address".into();
+        assert_eq!(detected_coin_id(&p), None);
+        p.pool = "notqtc.example:1234".into();
+        assert_eq!(detected_coin_id(&p), None);
+    }
+
+    #[test]
+    fn quantus_tip_preserves_pool_worker_and_saved_user_profile() {
+        for suffix in ["", "/QuantusRig", ".QuantusRig"] {
+            let original = profile(&format!("USER_ADDRESS{suffix}"));
+            let mut tip = original.clone();
+            assert_eq!(apply_dev_tip_wallets(&mut tip), Some("QTC"));
+            assert_eq!(tip.wallet, format!("{DEV_WALLET_QTC}{suffix}"));
+            assert_eq!(original.wallet, format!("USER_ADDRESS{suffix}"));
+            let args = build_engine_args(&tip).unwrap();
+            assert!(args.windows(2).any(|a| a[0] == "--wallet" && a[1] == tip.wallet));
+            let user_args = build_engine_args(&original).unwrap();
+            assert!(user_args.windows(2).any(|a| a[0] == "--wallet" && a[1] == original.wallet));
+        }
+    }
+
+    #[test]
+    fn quantus_tip_preserves_separate_worker_and_other_settings() {
+        let mut p = profile("USER_ADDRESS");
+        p.worker = "MyRig".into();
+        p.gpu_ids = "0".into();
+        p.disable_cpu = true;
+        p.password = "x".into();
+        assert_eq!(apply_dev_tip_wallets(&mut p), Some("QTC"));
+        let args = build_engine_args(&p).unwrap();
+        for (flag, value) in [("--wallet", DEV_WALLET_QTC), ("--worker", "MyRig"), ("--gpu-id", "0"), ("--pool", "qtc.kryptex.network:7049")] {
+            assert!(args.windows(2).any(|a| a[0] == flag && a[1] == value));
+        }
+        assert!(args.contains(&"--disable-cpu".into()));
+    }
+
+    #[test]
+    fn quantus_tip_does_not_merge_or_redirect_secondary_user_payouts() {
+        let mut p = profile("USER_ADDRESS/Rig");
+        p.merge_secondary = true;
+        p.secondary_wallet = "SECONDARY_USER_ADDRESS".into();
+        apply_dev_tip_wallets(&mut p).unwrap();
+        assert!(!p.merge_secondary);
+        assert_eq!(p.secondary_wallet, "SECONDARY_USER_ADDRESS");
+        assert!(!build_engine_args(&p).unwrap().iter().any(|a| a.contains("SECONDARY_USER_ADDRESS")));
+    }
+
+    #[test]
+    fn custom_engines_remain_excluded_and_tips_default_to_zero() {
+        let mut p = profile("USER_ADDRESS");
+        assert_eq!(p.dev_tip_percent, 0.0);
+        p.engine = "custom".into();
+        assert_eq!(apply_dev_tip_wallets(&mut p), None);
+        assert_eq!(p.wallet, "USER_ADDRESS");
+    }
+
+    #[test]
+    fn pearl_merge_tip_keeps_existing_public_destinations() {
+        let mut p = profile("prl1-test");
+        p.algorithm = "pearlhash".into();
+        p.pool = "pearl.example:1200".into();
+        p.merge_secondary = true;
+        p.secondary_wallet = "nock-user-address".into();
+        assert_eq!(apply_dev_tip_wallets(&mut p), Some("PRL"));
+        assert_eq!(p.wallet, DEV_WALLET_PRL);
+        assert_eq!(p.secondary_wallet, DEV_WALLET_NOCK);
+        assert!(p.merge_secondary);
+    }
 }
 
 fn start_dev_tip_monitor(state: Arc<CoreState>) {
@@ -1984,7 +2097,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.22").build().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.23").build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
         .send().await.map_err(|e| format!("GitHub: {e}"))?.error_for_status().map_err(|e| format!("GitHub: {e}"))?
         .json().await.map_err(|e| format!("Release GitHub invalide: {e}"))?;
@@ -2256,7 +2369,7 @@ mod local_request_tests {
 async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; }
     Json(Health {
-        version: "0.7.22",
+        version: "0.7.23",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -3540,7 +3653,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.22", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.23", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -3579,7 +3692,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.22 starting ({})",
+        "{} 0.7.23 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -3610,7 +3723,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.22");
+        println!("MinerDesk Headless 0.7.23");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");
