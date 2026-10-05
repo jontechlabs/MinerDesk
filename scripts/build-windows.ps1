@@ -1,6 +1,6 @@
 #requires -Version 5.1
 [CmdletBinding()]
-param()
+param([switch]$RequireSignature)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
@@ -42,6 +42,7 @@ function Assert-MdExeSubsystem {
 
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $stage = $null
+$signingConfig = $null
 Push-Location $root
 try {
     $package = Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json
@@ -51,6 +52,20 @@ try {
     $cargoVersion = [regex]::Match($cargoText, '(?m)^version\s*=\s*"([^"]+)"').Groups[1].Value
     if ($version -ne $tauri.version -or $version -ne $cargoVersion) { throw 'package.json, Cargo.toml and tauri.conf.json versions disagree.' }
     Write-Host "Building MinerDesk $version from: $root" -ForegroundColor Cyan
+    if ($RequireSignature) {
+        if (-not $env:MD_SIGNING_PUBLISHER -or -not $env:SIGNPATH_API_TOKEN) { throw 'Signing is required, but the provider is not configured.' }
+        . (Join-Path $PSScriptRoot 'windows-signing-common.ps1')
+        $env:MD_SIGNING_VERSION = $version
+        New-Item -ItemType Directory -Path (Join-Path $root 'publish') -Force | Out-Null
+        $env:MD_SIGNING_LOG = Join-Path $root 'publish\signing-receipts.jsonl'
+        [IO.File]::WriteAllText($env:MD_SIGNING_LOG, '')
+        $signingConfig = Join-Path $root ('publish\signing-' + [guid]::NewGuid().ToString('N') + '.json')
+        # Object notation preserves paths with spaces; %1 is replaced by Tauri.
+        @{ bundle = @{ windows = @{ signCommand = @{
+            cmd = 'powershell.exe'
+            args = @('-NoLogo', '-NoProfile', '-File', (Join-Path $PSScriptRoot 'sign-windows.ps1'), '-Path', '%1')
+        } } } } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $signingConfig -Encoding UTF8
+    }
 
     # Parse with the ACTUAL Windows PowerShell parser before expensive compilation.
     # Regression tests use synthetic processes; nothing running is stopped.
@@ -59,6 +74,7 @@ try {
     & (Join-Path $root 'tests\scheduler-control.tests.ps1')
     & (Join-Path $root 'tests\config-sync.tests.ps1')
     & (Join-Path $root 'tests\windowless-backend.tests.ps1')
+    & (Join-Path $root 'tests\windows-signing.tests.ps1')
 
     $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
     $npx = (Get-Command npx.cmd -ErrorAction Stop).Source
@@ -83,10 +99,15 @@ try {
     Invoke-MdBuildNative -File $cargo -Arguments @('build', '--release', '--manifest-path', 'src-tauri\Cargo.toml', '--bin', 'minerdesk-headless', '--bin', 'minerdesk-backend')
     Assert-MdBuiltExe $headless
     Assert-MdExeSubsystem -Path $headless -Expected 3
-    Copy-Item -LiteralPath $headless -Destination $resource -Force
     $backend = Join-Path $releaseDir 'minerdesk-backend.exe'
     Assert-MdBuiltExe $backend
     Assert-MdExeSubsystem -Path $backend -Expected 2
+    if ($RequireSignature) {
+        $env:MD_NSIS_PLUGIN_ROOT = Join-Path $releaseDir 'nsis\x64\Plugins\x86-unicode'
+        # Sign resources and installer helpers BEFORE embedding them in Setup.
+        & (Join-Path $PSScriptRoot 'sign-windows.ps1') -Path @($headless, $backend, (Join-Path $root 'src-tauri\windows\maintenance.ps1'), (Join-Path $root 'src-tauri\windows\maintenance-common.ps1'))
+    }
+    Copy-Item -LiteralPath $headless -Destination $resource -Force
     Copy-Item -LiteralPath $backend -Destination (Join-Path $root 'src-tauri\resources\minerdesk-backend.exe') -Force
 
     $expectedName = "MinerDesk_${version}_x64-setup.exe"
@@ -94,10 +115,22 @@ try {
     # An older file with the same name must not masquerade as this build's output.
     if (Test-Path -LiteralPath $setup) { Remove-Item -LiteralPath $setup -Force }
     Write-Host 'Building Desktop and NSIS Setup...' -ForegroundColor Cyan
-    Invoke-MdBuildNative -File $npx -Arguments @('tauri', 'build', '--bundles', 'nsis')
+    $tauriArgs = @('tauri', 'build', '--bundles', 'nsis')
+    if ($RequireSignature) { $tauriArgs += @('--config', $signingConfig) }
+    Invoke-MdBuildNative -File $npx -Arguments $tauriArgs
     $desktop = Join-Path $releaseDir 'minerdesk.exe'
     Assert-MdBuiltExe $desktop
     Assert-MdBuiltExe $setup
+    $signatures = @()
+    if ($RequireSignature) {
+        foreach ($file in @($desktop, $headless, $backend, $setup, $resource, (Join-Path $root 'src-tauri\resources\minerdesk-backend.exe'))) {
+            $signatures += Get-MdVerifiedSignature -Path $file -ExpectedPublisher $env:MD_SIGNING_PUBLISHER
+        }
+        $receipts = @(Get-Content -LiteralPath $env:MD_SIGNING_LOG | ForEach-Object { $_ | ConvertFrom-Json })
+        foreach ($role in @('desktop', 'cli', 'backend', 'maintenance', 'maintenance-common', 'installer', 'nsis-uninstaller')) {
+            if (-not ($receipts | Where-Object { $_.role -eq $role })) { throw "Missing verified signing receipt: $role" }
+        }
+    }
 
     # Publish only after EVERY step and the expected versioned Setup have passed.
     $publish = Join-Path $root 'publish\windows-x64'
@@ -111,8 +144,13 @@ try {
     foreach ($file in Get-ChildItem -LiteralPath $stage -Filter '*.exe') {
         $hashes[$file.Name] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
     }
-    [ordered]@{ version = $version; built_utc = (Get-Date).ToUniversalTime().ToString('o'); source = $root; sha256 = $hashes } |
-        ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $stage 'build-info.json') -Encoding UTF8
+    $signingStatus = 'unsigned'
+    if ($RequireSignature) {
+        $signingStatus = 'authenticode-verified'
+        Copy-Item -LiteralPath $env:MD_SIGNING_LOG -Destination (Join-Path $stage 'signing-receipts.jsonl')
+    }
+    [ordered]@{ version = $version; built_utc = (Get-Date).ToUniversalTime().ToString('o'); source = $root; sha256 = $hashes; signing = $signingStatus; signatures = $signatures } |
+        ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $stage 'build-info.json') -Encoding UTF8
     New-Item -ItemType Directory -Path $publish -Force | Out-Null
     # Only obsolete generated Setup files are removed; other user files remain.
     Get-ChildItem -LiteralPath $publish -Filter 'MinerDesk_*_x64-setup.exe' | Remove-Item -Force
@@ -123,6 +161,7 @@ try {
     Write-Host 'BUILD FAILED. Do not use an older Setup file as the result of this build.' -ForegroundColor Red
     throw
 } finally {
+    if ($signingConfig -and (Test-Path -LiteralPath $signingConfig)) { Remove-Item -LiteralPath $signingConfig -Force }
     if ($stage -and (Test-Path -LiteralPath $stage)) { Remove-Item -LiteralPath $stage -Recurse -Force }
     Pop-Location
 }

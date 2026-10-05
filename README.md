@@ -41,6 +41,8 @@ Open [the latest release](https://github.com/jontechlabs/MinerDesk/releases/late
 
 Verify downloads against `SHA256SUMS.txt` in the release. Builds are **unsigned**; a checksum verifies the downloaded bytes, not the identity of a publisher. Linux compatibility and exact validation are recorded in the release notes. macOS and ARM packages are not provided.
 
+[Code signing policy](docs/CODE-SIGNING.md): a separate Windows signing workflow is prepared, pending provider acceptance and configuration. Current 0.7.23 downloads remain unsigned. See the [privacy policy](docs/PRIVACY.md) for local data and network activity.
+
 ## Get started
 
 1. Install and open MinerDesk. On Windows, the installer configures the privileged backend while the desktop runs without administrator rights.

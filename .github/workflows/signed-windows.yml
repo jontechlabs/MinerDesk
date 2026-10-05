@@ -1,0 +1,139 @@
+name: Signed Windows release
+on:
+  workflow_dispatch:
+    inputs:
+      create_draft_release:
+        description: Create a new draft release (existing tags/releases are never replaced)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: signed-windows-release
+  cancel-in-progress: false
+jobs:
+  build:
+    name: Compile, sign and verify Windows x64
+    if: github.repository == 'jontechlabs/MinerDesk' && github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    environment: windows-signing
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.config.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Require an activated signing provider
+        id: config
+        shell: powershell
+        env:
+          MD_ENABLED: ${{ vars.WINDOWS_SIGNING_ENABLED }}
+          MD_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_POLICY_SLUG: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          GH_TOKEN: ${{ github.token }}
+          CREATE_DRAFT: ${{ inputs.create_draft_release }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:MD_ENABLED -ne 'true') { throw 'Signing is not activated. Complete docs/CODE-SIGNING.md first; no unsigned release will be produced.' }
+          foreach ($name in @('MD_SIGNING_PUBLISHER','SIGNPATH_API_TOKEN','SIGNPATH_ORGANIZATION_ID','SIGNPATH_PROJECT_SLUG','SIGNPATH_POLICY_SLUG')) {
+            if (-not [Environment]::GetEnvironmentVariable($name)) { throw "Missing signing configuration: $name" }
+          }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a stable numeric application version.' }
+          if ($env:CREATE_DRAFT -eq 'true') {
+            foreach ($suffix in @("git/ref/tags/v$version", "releases/tags/v$version")) {
+              $missing = $false
+              try {
+                Invoke-WebRequest -UseBasicParsing -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/$suffix" -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' } | Out-Null
+              } catch {
+                if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) { $missing = $true }
+                else { throw 'Cannot verify the release/tag is absent. Refusing to publish.' }
+              }
+              if (-not $missing) { throw "Version v$version already has a tag or release. Bump the version; do not replace published assets." }
+            }
+          }
+          "version=$version" | Add-Content $env:GITHUB_OUTPUT
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      # These are the exact official JS action entry points invoked by the sign
+      # hook. Pin source revisions; never download an executable signing script.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: actions/upload-artifact
+          ref: ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+          path: publish/signing-tools/upload-artifact
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: SignPath/github-action-submit-signing-request
+          ref: f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+          path: publish/signing-tools/signpath
+          persist-credentials: false
+      - run: npm ci --include=dev
+      - run: npm test
+      - name: Canonical build with verified Authenticode signing
+        uses: ./.github/actions/build-signed-windows
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MD_SIGNING_TOOLS: ${{ github.workspace }}\publish\signing-tools
+          MD_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_POLICY_SLUG: ${{ vars.SIGNPATH_POLICY_SLUG }}
+      - name: Rust library tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+      - name: Package verified Windows release assets
+        shell: powershell
+        run: .\scripts\package-signed-windows.ps1
+        env:
+          MD_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-x64-signed
+          path: publish/signed-release/
+          if-no-files-found: error
+          retention-days: 14
+  draft:
+    name: Create a draft with signed Windows assets
+    needs: build
+    if: inputs.create_draft_release
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-x64-signed
+          path: publish/signed-release
+      - name: Verify downloaded installer before creating the draft
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MD_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+          MD_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\scripts\verify-windows-signatures.ps1 -Path "publish/signed-release/MinerDesk_$($env:MD_VERSION)_x64-setup.exe" -ExpectedPublisher $env:MD_SIGNING_PUBLISHER
+          $notes = @"
+          Signed Windows x64 build of MinerDesk $env:MD_VERSION.
+
+          Installer, desktop, both backends and installer helpers have verified Authenticode signatures. See SIGNING-RECEIPTS.jsonl, WINDOWS-BUILD-INFO.json and WINDOWS-SHA256SUMS.txt for validation. Third-party mining engines and upstream NSIS plugins are not signed as MinerDesk.
+
+          Code signing policy: https://github.com/jontechlabs/MinerDesk/blob/main/docs/CODE-SIGNING.md
+
+          Maintainer: review these Windows assets and add the Linux packages and release notes before publishing. Code signing identifies the publisher; Windows UAC and SmartScreen reputation checks may still apply.
+          "@
+          $notes | Set-Content publish/signed-release-notes.md -Encoding UTF8
+          $assets = @(Get-ChildItem publish/signed-release -File | ForEach-Object { $_.FullName })
+          gh release create "v$env:MD_VERSION" @assets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --draft --title "MinerDesk $env:MD_VERSION" --notes-file publish/signed-release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed; existing releases were not overwritten.' }

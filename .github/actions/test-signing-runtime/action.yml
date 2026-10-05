@@ -1,0 +1,5 @@
+name: Verify signing artifact runtime
+description: Exercise the pinned official artifact uploader from the JavaScript signing callback environment.
+runs:
+  using: node24
+  main: index.cjs
