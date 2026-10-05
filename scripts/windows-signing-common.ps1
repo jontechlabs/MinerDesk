@@ -1,6 +1,21 @@
 #requires -Version 5.1
 Set-StrictMode -Version 2.0
 
+function Assert-MdUpstreamNsisPlugin {
+    param([string]$Path)
+    $pluginRoot = [IO.Path]::GetFullPath($env:MD_NSIS_PLUGIN_ROOT).TrimEnd('\') + '\'
+    if (-not $Path.StartsWith($pluginRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected upstream DLL signing request.' }
+    $relative = $Path.Substring($pluginRoot.Length)
+    if ($relative -notin @('NSISdl.dll', 'StartMenu.dll', 'System.dll', 'nsDialogs.dll', 'additional\nsis_tauri_utils.dll')) {
+        throw 'Unrecognized upstream NSIS plugin.'
+    }
+    $original = Join-Path $env:LOCALAPPDATA ('tauri\NSIS\Plugins\x86-unicode\' + $relative)
+    if ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash) {
+        throw 'NSIS plugin copy does not match the original toolchain cache.'
+    }
+    Write-Host "Retaining upstream signature state: $relative (not signed as MinerDesk)."
+}
+
 function Assert-MdSignatureResult {
     param($Signature, [string]$ExpectedPublisher, [string]$Path)
     if ([string]::IsNullOrWhiteSpace($ExpectedPublisher)) { throw 'The expected signing publisher must be configured.' }

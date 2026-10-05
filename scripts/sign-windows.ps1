@@ -13,17 +13,7 @@ $resolved = @($Path | ForEach-Object { (Resolve-Path -LiteralPath $_ -ErrorActio
 # source, so Foundation certificates must NOT be applied to them. Accept only
 # the exact plugin copies Tauri took from its verified toolchain cache.
 if ($resolved.Count -eq 1 -and [IO.Path]::GetExtension($resolved[0]) -ieq '.dll') {
-    $pluginRoot = [IO.Path]::GetFullPath($env:MD_NSIS_PLUGIN_ROOT).TrimEnd('\') + '\'
-    if (-not $resolved[0].StartsWith($pluginRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected upstream DLL signing request.' }
-    $relative = $resolved[0].Substring($pluginRoot.Length)
-    if ($relative -notin @('NSISdl.dll', 'StartMenu.dll', 'System.dll', 'nsDialogs.dll', 'additional\nsis_tauri_utils.dll')) {
-        throw 'Unrecognized upstream NSIS plugin.'
-    }
-    $original = Join-Path $env:LOCALAPPDATA ('tauri\NSIS\Plugins\x86-unicode\' + $relative)
-    if ((Get-FileHash -LiteralPath $resolved[0] -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash) {
-        throw 'NSIS plugin copy does not match the original toolchain cache.'
-    }
-    Write-Host "Retaining upstream signature state: $relative (not signed as MinerDesk)."
+    Assert-MdUpstreamNsisPlugin -Path $resolved[0]
     exit 0
 }
 $toSign = @()
