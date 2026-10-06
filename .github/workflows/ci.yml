@@ -64,15 +64,13 @@ jobs:
       - name: Tauri Linux prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev python3-lxml patchelf minisign
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev python3-lxml patchelf
       - run: npm ci --include=dev
       - name: Source invariants
         run: |
           python3 tests/verify_installer_sources.py
           python3 tests/verify_task_restart_policy.py
           python3 tests/verify_windowless_scheduler_sources.py
-      - name: Verify real update signatures and reject modified bytes/wrong keys
-        run: python3 tests/update-signatures.py
       - name: Build tested desktop, CLI, Debian package and AppImage
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
@@ -83,3 +81,15 @@ jobs:
           path: publish/linux-x64/
           if-no-files-found: error
           retention-days: 14
+  update-signatures:
+    name: Verify update signatures and tamper rejection
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --include=dev
+      - run: sudo apt-get update && sudo apt-get install -y minisign
+      - run: python3 tests/update-signatures.py
