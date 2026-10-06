@@ -76,7 +76,7 @@ fn install_target(app: &tauri::AppHandle) -> Result<&'static str, &'static str> 
     #[cfg(target_os = "windows")]
     {
         // A portable executable must not accidentally update a different install.
-        let script = r#"$ErrorActionPreference='Stop'; $p=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MinerDesk' -ErrorAction Stop; [Console]::Write($p.InstallLocation)"#;
+        let script = r#"$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $p=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MinerDesk' -ErrorAction Stop; [Console]::Write($p.InstallLocation)"#;
         let output = super::background_command("powershell.exe").args(["-NoLogo", "-NoProfile", "-Command", script]).output().map_err(|_| "portable")?;
         let installed = std::path::PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
         let exe = std::env::current_exe().map_err(|_| "portable")?;

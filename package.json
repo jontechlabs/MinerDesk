@@ -20,7 +20,7 @@
     "test": "npm run test:mining-controls && node --test tests/platform-config.test.cjs tests/dev-tip.test.cjs tests/windows-signing.test.cjs tests/app-updates.test.cjs"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/api": "~2.12.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
