@@ -77,6 +77,10 @@ def main():
     installer = f'MinerDesk_{version}_x64-setup.exe'
     appimage = f'MinerDesk_{version}_amd64.AppImage'
     deb = f'MinerDesk_{version}_amd64.deb'
+    package_name = subprocess.check_output(['dpkg-deb','-f',str(linux / deb),'Package'],text=True).strip()
+    package_version = subprocess.check_output(['dpkg-deb','-f',str(linux / deb),'Version'],text=True).strip()
+    if package_name != 'miner-desk' or package_version != version:
+        raise RuntimeError('Debian package registration differs from the updater contract')
     for directory, name in [(windows, installer), (windows, 'minerdesk-headless.exe'), (linux, appimage), (linux, deb)]:
         shutil.copyfile(directory / name, out / name)
     with zipfile.ZipFile(out / f'MinerDesk_{version}_windows-x64.zip', 'w', zipfile.ZIP_DEFLATED) as archive:

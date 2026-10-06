@@ -95,7 +95,7 @@ fn install_target(app: &tauri::AppHandle) -> Result<&'static str, &'static str> 
                 return Err("package");
             }
             let package = std::process::Command::new("/usr/bin/dpkg-query")
-                .args(["--show", "--showformat=${Status} ${Version}", "minerdesk"]).output().map_err(|_| "package")?;
+                .args(["--show", "--showformat=${Status} ${Version}", "miner-desk"]).output().map_err(|_| "package")?;
             if !package.status.success() || String::from_utf8_lossy(&package.stdout) != format!("install ok installed {}", env!("CARGO_PKG_VERSION")) { return Err("package"); }
             return Ok("linux-x86_64-deb");
         }
