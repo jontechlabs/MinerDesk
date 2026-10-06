@@ -5,6 +5,7 @@ The Axum backend serves the embedded frontend and JSON API on port 17888 by defa
 | Method | Route | Purpose |
 | --- | --- | --- |
 | GET | `/api/health` | Version, backend mode, scheduler and crash-guard status |
+| GET | `/api/updates?force=false` | Cached stable-release notification; `force=true` requests a manual refresh, rate-limited to once a minute. No remote installation endpoint. |
 | GET | `/api/engines` | Built-in engine adapters |
 | GET / PUT | `/api/config` | Read/replace complete configuration |
 | GET | `/api/status` | Profile runtime/metrics |

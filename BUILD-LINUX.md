@@ -38,7 +38,7 @@ The `.deb` installs the desktop and standalone CLI. The compatibility `minerdesk
 ## Runtime and headless use
 
 ```bash
-sudo apt install ./MinerDesk_0.7.23_amd64.deb
+sudo apt install ./MinerDesk_0.7.24_amd64.deb
 minerdesk
 
 # Installed standalone CLI (or ./minerdesk-headless from the tarball)
@@ -57,8 +57,8 @@ npm run headless:run -- --listen 127.0.0.1 --port 17888
 
 ## Compatibility and validation
 
-Build on an appropriately old supported distribution to avoid raising minimum glibc requirements. The 0.7.23 publication build uses **Ubuntu 22.04 on GitHub Actions**; downloaded packages are also smoke-tested under Ubuntu 26.04 WSL. The earlier 0.7.22 release used a Debian 12 container. These are documented build/runtime environments, not proof of compatibility with every Linux distribution.
+Build on an appropriately old supported distribution to avoid raising minimum glibc requirements. The 0.7.24 publication build uses **Ubuntu 22.04 on GitHub Actions**; downloaded packages are also smoke-tested under Ubuntu 26.04 WSL. The earlier 0.7.22 release used a Debian 12 container. These are documented build/runtime environments, not proof of compatibility with every Linux distribution.
 
-Release validation checks package metadata/content, headless startup/API/shutdown with isolated configuration, and desktop/AppImage smoke launches in a virtual display. It does not validate GPU mining, physical suspend/resume or every desktop environment. Exact outcomes and limits are listed in [0.7.23 validation](docs/VALIDATION-0.7.23.md).
+Release validation checks package metadata/content, headless startup/API/shutdown with isolated configuration, and desktop/AppImage smoke launches in a virtual display. It does not validate GPU mining, physical suspend/resume or every desktop environment. Exact outcomes and limits are listed in [0.7.24 validation](docs/VALIDATION-0.7.24.md).
 
 AppImage generation in a container may need `APPIMAGE_EXTRACT_AND_RUN=1` because `/dev/fuse` is unavailable. Do not claim a generated image works on a distro until it is tested there.

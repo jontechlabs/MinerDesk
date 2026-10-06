@@ -18,6 +18,8 @@ miners/
 *.p12
 .DS_Store
 *.log
+__pycache__/
+*.pyc
 wallet-backups/
 *recovery-phrase*
 *wallet-password*

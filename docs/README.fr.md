@@ -22,21 +22,23 @@ Les réglages disponibles dépendent du moteur et du matériel. Les statistiques
 
 ## Installation
 
-**Windows 10/11 x64 :** télécharger `MinerDesk_0.7.23_x64-setup.exe` depuis la Release. L'installeur configure le backend privilégié ; l'interface graphique reste exécutée comme utilisateur normal.
+**Windows 10/11 x64 :** télécharger `MinerDesk_0.7.24_x64-setup.exe` depuis la Release. L'installeur configure le backend privilégié ; l'interface graphique reste exécutée comme utilisateur normal.
 
 **Linux x64 compatible Debian :** télécharger le paquet `.deb`, puis :
 
 ```bash
-sudo apt install ./MinerDesk_0.7.23_amd64.deb
+sudo apt install ./MinerDesk_0.7.24_amd64.deb
 ```
 
-Les binaires ne sont pas signés. Comparer leur SHA-256 au fichier `SHA256SUMS.txt` de la Release. Les notes de publication précisent les plateformes et tests réalisés.
+La signature Authenticode Windows reste en attente. Les mises à jour 0.7.24 des installateurs, AppImages et paquets Debian disposent d’une signature cryptographique vérifiée par MinerDesk. Comparez aussi leur SHA-256 au fichier `SHA256SUMS.txt` de la Release.
+
+À partir de 0.7.24, recherche des versions stables toutes les 6 heures, confirmation avant installation, progression du téléchargement et lien GitHub lorsque la mise à jour automatique est indisponible. Installez 0.7.24 une première fois pour recevoir les prochaines mises à jour. [Guide des mises à jour](UPDATES.md).
 
 Dans **Miners**, choisir un moteur, renseigner le pool et une adresse publique, sélectionner les GPU, sauvegarder et démarrer. **Console** permet de comprendre les erreurs. **Schedules** gère les plages horaires.
 
 ![Planificateur MinerDesk](images/schedules.png)
 
-Captures réelles de l'interface web 0.7.21, conservée dans 0.7.23. Les valeurs illustrent une session et ne constituent pas un benchmark.
+Captures réelles de l'interface web 0.7.21, conservée dans 0.7.24. Les valeurs illustrent une session et ne constituent pas un benchmark.
 
 ## Contrôle et sécurité
 

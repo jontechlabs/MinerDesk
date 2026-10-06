@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ApiTimeoutError, requestJson } from "./api";
+import AppUpdates from "./AppUpdates";
+import type { AppUpdate } from "./updatePolicy";
 import { detectDevCoin } from "./devTip";
 import { BulkStartError, runMiningCommand, type MiningAction } from "./minerCommands";
 import { dayNames, languageDirection, LANGUAGES, tr } from "./i18n";
@@ -11,7 +13,7 @@ import type {
 
 type Tab = "dashboard" | "miners" | "schedules" | "console" | "settings";
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
-const DESKTOP_VERSION = "0.7.23";
+const DESKTOP_VERSION = "0.7.24";
 
 function resolveApiBase() {
   // Important: Tauri 2 uses an HTTP(S)-looking origin such as
@@ -110,6 +112,7 @@ export default function App() {
   const [securityBusy, setSecurityBusy] = useState<"firewall"|"defender"|null>(null);
   const [securityError, setSecurityError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [appUpdating, setAppUpdating] = useState(false);
   const [commandError, setCommandError] = useState("");
   const [commandProgress, setCommandProgress] = useState("");
   const commandBusyRef = useRef(false);
@@ -328,7 +331,7 @@ export default function App() {
       // The native Desktop must keep polling while minimized/hidden so a schedule
       // end can restore the window and show the sleep/hibernate confirmation. A
       // regular browser tab keeps the old visibility optimization.
-      if (powerPollBusy.current || (!isTauri && document.visibilityState !== "visible")) return;
+      if (appUpdating || powerPollBusy.current || (!isTauri && document.visibilityState !== "visible")) return;
       powerPollBusy.current = true;
       try {
         const next = await api<PendingPowerAction | null>("/api/power/pending", {}, token);
@@ -343,16 +346,16 @@ export default function App() {
     void load();
     const timer = window.setInterval(() => void load(), isTauri ? 1000 : 2500);
     return () => window.clearInterval(timer);
-  }, [token]);
+  }, [token, appUpdating]);
   useEffect(() => {
-    if (!pendingPower) return;
+    if (!pendingPower || appUpdating) return;
     // Restore/unminimize and focus the native application as soon as a new power
     // confirmation modal appears. This also brings close-to-tray windows back.
     if (isTauri) void invoke("focus_main_window").catch(() => undefined);
     setPowerNow(Math.floor(Date.now()/1000));
     const timer = window.setInterval(() => setPowerNow(Math.floor(Date.now()/1000)), 1000);
     return () => window.clearInterval(timer);
-  }, [pendingPower?.id]);
+  }, [pendingPower?.id, appUpdating]);
   useEffect(() => {
     if (!pendingPower) return;
     const cancelOnClose = () => {
@@ -594,12 +597,13 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.23 · multi-miner</span></div></div>
+      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.24 · multi-miner</span></div></div>
       <nav>{(["dashboard","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot"/>{t(x)}</button>)}</nav>
       <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {t("activeMiners").toUpperCase()}</div><div className={`status-pill ${backendStatus?.reachable?"on":"off"}`}><span/>{backendStatus?.reachable?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>
     <main className={tab==="console"?"console-main":""}>
       <header className="topbar"><div><h1>{title}</h1><p>{statusText}{dirty?` · ${t("unsaved")}`:""}</p></div><div className="top-actions">{dirty&&<button className="btn primary" onClick={()=>saveConfig()} disabled={busy}>{t("save")}</button>}<button className="btn ghost" onClick={()=>allAction("start-all")} disabled={busy||!health}>{t("startAll")}</button><button className="btn danger" onClick={()=>allAction("stop-all")} disabled={busy||!health}>{t("stopAll")}</button></div></header>
+      <AppUpdates desktop={isTauri} language={language} settings={tab === "settings"} dirty={dirty} busy={busy || backendBusy || Boolean(pendingPower)} onInstalling={setAppUpdating} checkWeb={(force) => api<AppUpdate>(`/api/updates?force=${force}`, {}, token, 25000)}/>
 
       {commandProgress && <div className="command-progress" role="status">{commandProgress}</div>}
       {commandError && <div className="command-error" role="alert">

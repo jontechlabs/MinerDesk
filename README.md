@@ -33,15 +33,15 @@ Open [the latest release](https://github.com/jontechlabs/MinerDesk/releases/late
 
 | Platform | Asset | Use |
 | --- | --- | --- |
-| Windows 10/11 x64 | `MinerDesk_0.7.23_x64-setup.exe` | Recommended desktop installation, including both backends. |
-| Windows x64 | `MinerDesk_0.7.23_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
-| Debian-compatible Linux x64 | `MinerDesk_0.7.23_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.23_amd64.deb`. |
-| Linux x64 | `MinerDesk_0.7.23_amd64.AppImage` | Application image; make executable before launching. |
-| Linux x64 | `MinerDesk_0.7.23_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
+| Windows 10/11 x64 | `MinerDesk_0.7.24_x64-setup.exe` | Recommended desktop installation, including both backends. |
+| Windows x64 | `MinerDesk_0.7.24_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
+| Debian-compatible Linux x64 | `MinerDesk_0.7.24_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.24_amd64.deb`. |
+| Linux x64 | `MinerDesk_0.7.24_amd64.AppImage` | Application image; make executable before launching. |
+| Linux x64 | `MinerDesk_0.7.24_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
 
-Verify downloads against `SHA256SUMS.txt` in the release. Builds are **unsigned**; a checksum verifies the downloaded bytes, not the identity of a publisher. Linux compatibility and exact validation are recorded in the release notes. macOS and ARM packages are not provided.
+Verify downloads against `SHA256SUMS.txt` in the release. Windows builds remain **unsigned with Authenticode**. Starting with 0.7.24, installer/AppImage/Debian updates have separate cryptographic signatures verified by the app. Linux compatibility and exact validation are recorded in the release notes. macOS and ARM packages are not provided.
 
-[Code signing policy](docs/CODE-SIGNING.md): a separate Windows signing workflow is prepared, pending provider acceptance and configuration. Current 0.7.23 downloads remain unsigned. See the [privacy policy](docs/PRIVACY.md) for local data and network activity.
+[Code signing policy](docs/CODE-SIGNING.md): a separate Windows signing workflow is prepared, pending provider acceptance and configuration. Current 0.7.24 downloads remain unsigned. See the [privacy policy](docs/PRIVACY.md) for local data and network activity.
 
 ## Get started
 
@@ -59,6 +59,7 @@ The optional developer tip is **0% by default**, visible and selectable per prof
 **Quantus (QTC):** use an SRBMiner-Multi profile and, from 0.7.23, optional developer support with worker preservation. See the [Quantus setup guide](docs/QUANTUS.md) and [English video tutorial](https://www.youtube.com/watch?v=cCzC8PqDtEI).
 
 - **Multiple profiles:** independent pools, wallets, workers, GPUs, tuning, API ports and advanced arguments.
+- **Updates on your terms:** checks every 6 hours, an install confirmation, verified downloads and GitHub links for installations that need manual updates. [Update guide](docs/UPDATES.md).
 - **Live overview:** active profiles, parsed hashrate, power, temperature, shares and uptime, with engine/state filters.
 - **A console per profile:** stdout/stderr, generated command lines and persistent command errors.
 - **Weekly scheduling:** multiple weekdays/profiles, overnight windows, manual holds and optional power actions.
@@ -95,7 +96,7 @@ The scheduler runs in Rust. Closing a browser tab does not stop scheduling while
 - Sleep/hibernate is blocked by another active window or a manual mining session. When UI confirmation is required, an open confirmation UI is required; cancellation aborts the action.
 - Windows wake timers depend on hardware and power-plan support. Linux sleep/hibernate uses `systemctl` where supported; automatic wake-task creation is Windows-specific.
 
-Screenshots were captured from the author's running **0.7.21 web interface**; 0.7.23 retains that interface. Values show one real session, not a benchmark.
+Screenshots were captured from the author's running **0.7.21 web interface**; 0.7.24 retains that interface. Values show one real session, not a benchmark.
 
 ## Desktop, backend and headless architecture
 

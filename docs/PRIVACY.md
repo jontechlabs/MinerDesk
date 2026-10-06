@@ -10,6 +10,8 @@ If you enable browser/LAN access, the backend serves the interface and API to th
 
 ## Network activity
 
+Starting with 0.7.24, automatic update checks contact GitHub's release API shortly after opening the desktop/web interface and every 6 hours while it remains open. You can turn these checks off or check manually in Settings. GitHub receives the IP address, request path and MinerDesk user agent; wallets, API tokens, profiles, logs and mining metrics are not sent. The backend caches checks for connected web clients. If you confirm an installation, the desktop also downloads release metadata and the signed package from GitHub's download hosts. The local check/snooze preferences are stored in this device's webview/browser storage. See [the update guide](UPDATES.md).
+
 When you request an engine download, MinerDesk contacts GitHub's release API and the upstream release download host to obtain the chosen engine. Those services receive normal connection information such as your IP address, request path and user agent. GitHub's [privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement) applies to GitHub-hosted services.
 
 When you start or schedule a miner, the third-party executable makes connections according to its own implementation and the pool/settings you configured. Pools receive the public payout address/username, worker identifiers and shares supplied by the miner. Review that engine's license, fees and privacy behavior and the pool's policy. MinerDesk cannot promise that all third-party executables limit their own network traffic.
