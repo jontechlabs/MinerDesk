@@ -64,13 +64,15 @@ jobs:
       - name: Tauri Linux prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev python3-lxml patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev python3-lxml patchelf minisign
       - run: npm ci --include=dev
       - name: Source invariants
         run: |
           python3 tests/verify_installer_sources.py
           python3 tests/verify_task_restart_policy.py
           python3 tests/verify_windowless_scheduler_sources.py
+      - name: Verify real update signatures and reject modified bytes/wrong keys
+        run: python3 tests/update-signatures.py
       - name: Build tested desktop, CLI, Debian package and AppImage
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'

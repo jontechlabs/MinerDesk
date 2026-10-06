@@ -1,6 +1,6 @@
 [package]
 name = "minerdesk"
-version = "0.7.23"
+version = "0.7.24"
 description = "Cross-platform multi-miner launcher, scheduler and headless web monitor"
 authors = ["MinerDesk"]
 edition = "2021"
@@ -41,7 +41,7 @@ walkdir = "2"
 rfd = "0.15"
 shlex = "1"
 axum = { version = "0.7", features = ["json"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time", "sync"] }
 tower-http = { version = "0.6", features = ["cors"] }
 chrono = { version = "0.4", features = ["serde", "clock"] }
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -49,6 +49,9 @@ dirs-next = "2"
 include_dir = "0.7"
 mime_guess = "2"
 clap = { version = "4", features = ["derive"] }
+semver = "1"
+tauri-plugin-updater = "2"
+tempfile = "3"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 tauri = { version = "2", features = ["tray-icon"] }

@@ -1,0 +1,64 @@
+name: Prepare release with signed updates
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful Build and checks run for the current main revision
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: prepare-app-release
+  cancel-in-progress: false
+jobs:
+  package:
+    if: github.repository == 'jontechlabs/MinerDesk' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: app-updates
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --include=dev
+      - run: sudo apt-get update && sudo apt-get install -y minisign
+      - name: Verify build provenance and a new version before downloading
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MD_RUN_ID: ${{ inputs.build_run_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          run_id = os.environ['MD_RUN_ID']
+          assert re.fullmatch(r'\d+',run_id), 'Invalid run ID'
+          repo = os.environ['GITHUB_REPOSITORY']
+          run = json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}']))
+          assert run['conclusion'] == 'success' and run['head_branch'] == 'main'
+          assert run['head_sha'] == os.environ['GITHUB_SHA']
+          assert run['path'] == '.github/workflows/ci.yml' and run['event'] in ['push','workflow_dispatch']
+          version = json.load(open('package.json'))['version']
+          assert re.fullmatch(r'\d+\.\d+\.\d+',version)
+          for endpoint in [f'git/ref/tags/v{version}',f'releases/tags/v{version}']:
+              result = subprocess.run(['gh','api',f'repos/{repo}/{endpoint}'],capture_output=True,text=True)
+              assert result.returncode != 0 and '404' in result.stderr, 'Existing version or API failure; refusing overwrite'
+          subprocess.run(['gh','run','download',run_id,'-R',repo,'-n','windows-x64','-n','linux-x64','-D','publish/artifacts'],check=True)
+          PY
+      - name: Package and verify signed update assets
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          MD_RUN_ID: ${{ inputs.build_run_id }}
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          python3 scripts/package-release.py --artifacts publish/artifacts --output publish/release --source-commit "$GITHUB_SHA" --run-url "https://github.com/$GITHUB_REPOSITORY/actions/runs/$MD_RUN_ID" --notes "docs/releases/$version.md"
+      - name: Create a complete draft (maintainer publishes after review)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          gh release create "v$version" publish/release/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title "MinerDesk $version" --notes-file "docs/releases/$version.md"

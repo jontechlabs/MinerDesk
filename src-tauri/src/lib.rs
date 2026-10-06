@@ -36,6 +36,8 @@ use tauri::{
 };
 use tower_http::cors::CorsLayer;
 mod schedule_control;
+mod app_updates;
+use app_updates::{check_app_update, install_app_update};
 #[cfg(any(target_os = "windows", test))]
 mod config_sync;
 use schedule_control::{scheduler_should_stop_session, ActiveOccurrences, LocalMoment, ManualScheduleControl, StopSnapshot};
@@ -2097,7 +2099,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.23").build().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.24").build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
         .send().await.map_err(|e| format!("GitHub: {e}"))?.error_for_status().map_err(|e| format!("GitHub: {e}"))?
         .json().await.map_err(|e| format!("Release GitHub invalide: {e}"))?;
@@ -2369,7 +2371,7 @@ mod local_request_tests {
 async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; }
     Json(Health {
-        version: "0.7.23",
+        version: "0.7.24",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -2752,6 +2754,7 @@ async fn serve_web(core: Arc<CoreState>, listen: String, port: u16, token: Optio
     let state = WebState { core, token, headless, desktop_owned, desktop_leases };
     let app = Router::new()
         .route("/api/health", get(api_health))
+        .route("/api/updates", get(api_app_update))
         .route("/api/engines", get(api_engines))
         .route("/api/config", get(api_get_config).put(api_put_config))
         .route("/api/status", get(api_status))
@@ -2781,6 +2784,16 @@ async fn serve_web(core: Arc<CoreState>, listen: String, port: u16, token: Optio
     let addr = format!("{listen}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| format!("Web server {addr}: {e}"))?;
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+struct UpdateQuery { #[serde(default)] force: bool }
+async fn api_app_update(AxumState(s): AxumState<WebState>, headers: HeaderMap, Query(query): Query<UpdateQuery>) -> Response {
+    if let Err(r) = api_auth(&headers, &s) { return r; }
+    match app_updates::notification(query.force).await {
+        Ok(info) => Json(info).into_response(),
+        Err(e) => (StatusCode::BAD_GATEWAY, Json(json!({"error":e}))).into_response(),
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -3213,6 +3226,10 @@ fn start_backend_desktop_heartbeat(port: u16) {
         let mut consecutive_failures = 0_u32;
         let mut failure_logged = false;
         loop {
+            if DESKTOP_EXIT_SHUTDOWN_STARTED.load(Ordering::SeqCst) {
+                thread::sleep(Duration::from_secs(2));
+                continue;
+            }
             match request_backend_desktop_heartbeat(port) {
                 Ok(()) => {
                     if failure_logged {
@@ -3494,6 +3511,8 @@ fn get_backend_diagnostics(state: tauri::State<'_, Arc<CoreState>>) -> Result<Ba
 
 #[tauri::command]
 fn start_privileged_backend(state: tauri::State<'_, Arc<CoreState>>) -> Result<BackendStatus, String> {
+    #[cfg(target_os = "windows")]
+    if DESKTOP_EXIT_SHUTDOWN_STARTED.load(Ordering::SeqCst) { return Err("An application update or shutdown is in progress".into()); }
     let port = state.config().web.desktop_api_port;
     if backend_health_ok(port) { return Ok(backend_status_for_port(port)); }
     #[cfg(target_os = "windows")]
@@ -3520,6 +3539,8 @@ fn start_privileged_backend(state: tauri::State<'_, Arc<CoreState>>) -> Result<B
 
 #[tauri::command]
 fn restart_privileged_backend(state: tauri::State<'_, Arc<CoreState>>) -> Result<BackendStatus, String> {
+    #[cfg(target_os = "windows")]
+    if DESKTOP_EXIT_SHUTDOWN_STARTED.load(Ordering::SeqCst) { return Err("An application update or shutdown is in progress".into()); }
     let port = state.config().web.desktop_api_port;
     #[cfg(target_os = "windows")]
     {
@@ -3542,6 +3563,8 @@ fn restart_privileged_backend(state: tauri::State<'_, Arc<CoreState>>) -> Result
 
 #[tauri::command]
 fn repair_privileged_backend(state: tauri::State<'_, Arc<CoreState>>) -> Result<BackendStatus, String> {
+    #[cfg(target_os = "windows")]
+    if DESKTOP_EXIT_SHUTDOWN_STARTED.load(Ordering::SeqCst) { return Err("An application update or shutdown is in progress".into()); }
     let port = state.config().web.desktop_api_port;
     #[cfg(target_os = "windows")]
     {
@@ -3607,7 +3630,9 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .manage(Arc::clone(&core))
-        .invoke_handler(tauri::generate_handler![pick_miner_file, get_system_info, get_security_status, set_firewall_exception, set_defender_exception, get_backend_status, get_backend_diagnostics, start_privileged_backend, restart_privileged_backend, repair_privileged_backend, set_start_with_windows, set_close_to_tray, focus_main_window])
+        .manage(app_updates::DesktopUpdates::default())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![check_app_update, install_app_update, pick_miner_file, get_system_info, get_security_status, set_firewall_exception, set_defender_exception, get_backend_status, get_backend_diagnostics, start_privileged_backend, restart_privileged_backend, repair_privileged_backend, set_start_with_windows, set_close_to_tray, focus_main_window])
         .setup(move |app| {
             configure_windows_tray(app, &cfg)?;
             #[cfg(target_os = "windows")]
@@ -3653,7 +3678,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.23", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.24", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -3692,7 +3717,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.23 starting ({})",
+        "{} 0.7.24 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -3723,7 +3748,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.23");
+        println!("MinerDesk Headless 0.7.24");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");
