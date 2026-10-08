@@ -1,7 +1,7 @@
 {
   "name": "minerdesk",
   "private": true,
-  "version": "0.7.24",
+  "version": "0.7.25",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,7 +17,7 @@
     "headless:build:debug": "node scripts/prepare-windows-resources.mjs && cargo build --manifest-path src-tauri/Cargo.toml --bin minerdesk-headless --bin minerdesk-backend",
     "test:mining-controls": "node --test tests/miner-controls.test.cjs",
     "build:linux": "bash scripts/build-linux.sh",
-    "test": "npm run test:mining-controls && node --test tests/platform-config.test.cjs tests/dev-tip.test.cjs tests/windows-signing.test.cjs tests/app-updates.test.cjs"
+    "test": "npm run test:mining-controls && node --test tests/platform-config.test.cjs tests/dev-tip.test.cjs tests/windows-signing.test.cjs tests/app-updates.test.cjs tests/gpu-discovery.test.cjs"
   },
   "dependencies": {
     "@tauri-apps/api": "~2.12.1",

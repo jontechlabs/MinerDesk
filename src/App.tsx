@@ -4,6 +4,7 @@ import { ApiTimeoutError, requestJson } from "./api";
 import AppUpdates from "./AppUpdates";
 import type { AppUpdate } from "./updatePolicy";
 import { detectDevCoin } from "./devTip";
+import { selectableGpuDevices, gpuSelectorsUnverified } from "./gpuDiscovery";
 import { BulkStartError, runMiningCommand, type MiningAction } from "./minerCommands";
 import { dayNames, languageDirection, LANGUAGES, tr } from "./i18n";
 import type {
@@ -13,7 +14,7 @@ import type {
 
 type Tab = "dashboard" | "miners" | "schedules" | "console" | "settings";
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
-const DESKTOP_VERSION = "0.7.24";
+const DESKTOP_VERSION = "0.7.25";
 
 function resolveApiBase() {
   // Important: Tauri 2 uses an HTTP(S)-looking origin such as
@@ -122,6 +123,7 @@ export default function App() {
   const [backendBusy, setBackendBusy] = useState(false);
   const [gpuDiscovery, setGpuDiscovery] = useState<GpuDiscovery | null>(null);
   const [gpuBusy, setGpuBusy] = useState(false);
+  const gpuRequestSequence = useRef(0);
   const [pendingPower, setPendingPower] = useState<PendingPowerAction | null>(null);
   const [powerNow, setPowerNow] = useState(Math.floor(Date.now()/1000));
   const logsEnd = useRef<HTMLDivElement>(null);
@@ -391,13 +393,17 @@ export default function App() {
     if (tab === "console") logsEnd.current?.scrollIntoView({ behavior: "auto" });
   }, [logs.length, tab]);
   useEffect(() => {
+    ++gpuRequestSequence.current;
+    setGpuDiscovery(null);
+    setGpuBusy(false);
     if (tab !== "miners" || !selectedMiner) return;
     const timer = window.setTimeout(() => { void loadGpus(selectedMiner); }, 250);
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); ++gpuRequestSequence.current; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, selectedMiner, config?.miners.find(m=>m.id===selectedMiner)?.engine, config?.miners.find(m=>m.id===selectedMiner)?.executable_path]);
 
   const selected = config?.miners.find(m => m.id === selectedMiner) || null;
+  const gpuSelectionDevices = selectableGpuDevices(gpuDiscovery, selected?.engine || "");
   const filtered = useMemo(() => statuses.filter(s => {
     const text = `${s.profile.name} ${s.profile.algorithm} ${s.profile.pool} ${s.profile.gpu_ids}`.toLowerCase();
     const stateMatches = filterState === "all" ||
@@ -434,7 +440,9 @@ export default function App() {
     let gpuIds = m.gpu_ids;
     // Per-GPU tuning requires an explicit stable GPU order. If the profile was in
     // "all GPUs" mode, promote the currently discovered devices to an explicit selection.
-    if (!gpuIds.trim() && gpuDiscovery?.devices?.length) gpuIds = gpuDiscovery.devices.map(g => g.selector).join(",");
+    const devices = selectableGpuDevices(gpuDiscovery, m.engine);
+    if (!devices.some(g => g.selector === selector)) return;
+    if (!gpuIds.trim() && devices.length) gpuIds = devices.map(g => g.selector).join(",");
     mutateMiner(m.id, { gpu_tuning: next, gpu_ids: gpuIds });
   }
   function gpuOverride(m: MinerProfile, selector: string): GpuTuning {
@@ -557,13 +565,19 @@ export default function App() {
   }
   async function loadGpus(minerId: string) {
     const profile = config?.miners.find(m=>m.id===minerId); if (!profile) return;
+    const sequence = ++gpuRequestSequence.current;
     setGpuBusy(true);
-    try { setGpuDiscovery(await api<GpuDiscovery>("/api/gpus/discover", { method:"POST", body:JSON.stringify(profile) }, token)); }
-    catch (e) { setGpuDiscovery(null); setStatusText(`${t("gpuDetection")}: ${String(e)}`); }
-    finally { setGpuBusy(false); }
+    setGpuDiscovery(null);
+    try {
+      const discovery = await api<GpuDiscovery>("/api/gpus/discover", { method:"POST", body:JSON.stringify(profile) }, token, 75000);
+      if (sequence === gpuRequestSequence.current) setGpuDiscovery(discovery);
+    }
+    catch (e) { if (sequence === gpuRequestSequence.current) { setGpuDiscovery(null); setStatusText(`${t("gpuDetection")}: ${String(e)}`); } }
+    finally { if (sequence === gpuRequestSequence.current) setGpuBusy(false); }
   }
   function selectedGpuTokens(m: MinerProfile) { return m.gpu_ids.split(/[;,\s]+/).map(x=>x.trim()).filter(Boolean); }
   function toggleGpu(m: MinerProfile, selector: string, checked: boolean) {
+    if (!selectableGpuDevices(gpuDiscovery, m.engine).some(g => g.selector === selector)) return;
     const current = selectedGpuTokens(m);
     const next = checked ? Array.from(new Set([...current, selector])) : current.filter(x=>x!==selector);
     if (!checked && current.length === 1) { setStatusText(t("keepGpu")); return; }
@@ -597,7 +611,7 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.24 · multi-miner</span></div></div>
+      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.25 · multi-miner</span></div></div>
       <nav>{(["dashboard","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot"/>{t(x)}</button>)}</nav>
       <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {t("activeMiners").toUpperCase()}</div><div className={`status-pill ${backendStatus?.reachable?"on":"off"}`}><span/>{backendStatus?.reachable?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>
@@ -645,13 +659,13 @@ export default function App() {
           <div className="gpu-picker">
             <div className="gpu-picker-head"><div><strong>{t("gpuUse")}</strong><span>{gpuDiscovery?.selection_hint || t("gpuUseHelp")}</span></div><button className="mini-btn" disabled={gpuBusy} onClick={()=>loadGpus(selected.id)}>{gpuBusy?t("detecting"):t("refresh")}</button></div>
             <label className="gpu-choice all"><input type="checkbox" checked={!selected.gpu_ids.trim()} onChange={e=>{ if(e.target.checked) mutateMiner(selected.id,{gpu_ids:""}); }}/><span><strong>{t("allGpus")}</strong><small>{t("allGpusHelp")}</small></span></label>
-            {gpuDiscovery?.devices?.length ? <div className="gpu-options">{gpuDiscovery.devices.map(g=>{const checked=selectedGpuTokens(selected).includes(g.selector);return <label className={`gpu-choice ${checked?"selected":""}`} key={`${g.selector}-${g.name}`}><input type="checkbox" checked={checked} onChange={e=>toggleGpu(selected,g.selector,e.target.checked)}/><span><strong>GPU {g.selector} · {g.name}</strong><small>{g.vendor}{g.pci_bus?` · PCI ${g.pci_bus}`:""}</small></span></label>})}</div> : <div className="gpu-empty">{gpuBusy?t("detecting"):t("noGpu")}</div>}
+            {gpuSelectorsUnverified(gpuDiscovery,selected.engine) ? <div className="gpu-empty" role="status"><p>{t("gpuIdsUnverified")}</p>{gpuDiscovery?.devices.map(g=><div key={`${g.selector}-${g.name}`}><strong>{g.name}</strong><small> · {g.vendor}{g.pci_bus?` · PCI ${g.pci_bus}`:""}</small></div>)}</div> : gpuSelectionDevices.length ? <div className="gpu-options">{gpuSelectionDevices.map(g=>{const checked=selectedGpuTokens(selected).includes(g.selector);return <label className={`gpu-choice ${checked?"selected":""}`} key={`${g.selector}-${g.name}`}><input type="checkbox" checked={checked} onChange={e=>toggleGpu(selected,g.selector,e.target.checked)}/><span><strong>GPU {g.selector} · {g.name}</strong><small>{g.vendor}{g.pci_bus?` · PCI ${g.pci_bus}`:""}</small></span></label>})}</div> : <div className="gpu-empty">{gpuBusy?t("detecting"):t("noGpu")}</div>}
             <details className="gpu-manual"><summary>{t("manualIds")}</summary><div className="gpu-manual-body"><Field label={t("savedGpuIds")} value={selected.gpu_ids} onChange={v=>mutateMiner(selected.id,{gpu_ids:v})} placeholder="0,1 or 1:0,3:0"/><p>{t("source")}: {gpuDiscovery?.source||"—"}. SRBMiner/lolMiner/Rigel/NPMiner use indexed selectors; BzMiner may use PCI selectors. lpminer uses system detection unless you provide a supported selector in Advanced arguments.</p>{gpuDiscovery?.raw_excerpt&&<pre>{gpuDiscovery.raw_excerpt}</pre>}</div></details>
           </div>
 
           <div className="per-gpu-box"><div className="gpu-picker-head"><div><strong>{t("perGpuTuning")}</strong><span>{t("perGpuHelp")}</span></div></div>
             <div className="per-gpu-table"><div className="per-gpu-row header"><span>GPU</span><span>{t("coreClock")}</span><span>{t("powerLimit")}</span><span>{t("fan")}</span></div>
-            {(gpuDiscovery?.devices || []).filter(g=>!selected.gpu_ids.trim() || selectedGpuTokens(selected).includes(g.selector)).map(g=>{const tv=gpuOverride(selected,g.selector);return <div className="per-gpu-row" key={`tune-${g.selector}`}><div><strong>{g.name}</strong><small>GPU {g.selector}</small></div><MiniNum value={tv.core_clock} placeholder={selected.core_clock?.toString()||"—"} onChange={v=>mutateGpuTuning(selected,g.selector,{core_clock:v})}/><MiniNum value={tv.power_limit} placeholder={selected.power_limit?.toString()||"—"} onChange={v=>mutateGpuTuning(selected,g.selector,{power_limit:v})}/><MiniNum value={tv.fan} placeholder={selected.fan?.toString()||"—"} onChange={v=>mutateGpuTuning(selected,g.selector,{fan:v})}/></div>})}</div>
+            {gpuSelectionDevices.filter(g=>!selected.gpu_ids.trim() || selectedGpuTokens(selected).includes(g.selector)).map(g=>{const tv=gpuOverride(selected,g.selector);return <div className="per-gpu-row" key={`tune-${g.selector}`}><div><strong>{g.name}</strong><small>GPU {g.selector}</small></div><MiniNum value={tv.core_clock} placeholder={selected.core_clock?.toString()||"—"} onChange={v=>mutateGpuTuning(selected,g.selector,{core_clock:v})}/><MiniNum value={tv.power_limit} placeholder={selected.power_limit?.toString()||"—"} onChange={v=>mutateGpuTuning(selected,g.selector,{power_limit:v})}/><MiniNum value={tv.fan} placeholder={selected.fan?.toString()||"—"} onChange={v=>mutateGpuTuning(selected,g.selector,{fan:v})}/></div>})}</div>
           </div>
 
           <details className="legacy-defaults"><summary>Default / legacy GPU tuning</summary><p>These values are used as fallbacks for old profiles or GPUs without an explicit override.</p><div className="form-grid three"><NumField label={t("coreClock")} value={selected.core_clock} onChange={v=>mutateMiner(selected.id,{core_clock:v})}/><NumField label={t("powerLimit")} value={selected.power_limit} onChange={v=>mutateMiner(selected.id,{power_limit:v})}/><NumField label={t("fan")} value={selected.fan} onChange={v=>mutateMiner(selected.id,{fan:v})}/></div></details>

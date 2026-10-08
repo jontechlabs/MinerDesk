@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.25
+
+- Parse SRBMiner's mixed OpenCL/CUDA GPU listings, preserving global device IDs and PCI addresses instead of substituting system/CUDA-local indices.
+- Keep unverified fallback inventory informational for indexed engines and preserve saved GPU IDs/tuning.
+- Allow slow GPU discovery, bound diagnostics to 60 seconds, run them outside HTTP request workers and discard stale profile results.
+- Add regressions for the observed AMD/RTX listing, legacy/sparse IDs, clock overrides, fallback selection and diagnostic timeout/output handling.
+
+## 0.7.24
+
+- Add periodic stable-release checks, update prompts, manual checks and a 24-hour snooze.
+- Verify update signatures before installing supported Windows, AppImage and Debian packages; show GitHub download links for other installations.
+- Preserve saved profiles and schedules during installation and publish signed update manifests from tested CI builds.
+
 ## 0.7.23
 
 - Add Quantus (QTC) detection to the frontend and backend and a public receiving address for optional developer support.

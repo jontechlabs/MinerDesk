@@ -27,4 +27,6 @@ The Axum backend serves the embedded frontend and JSON API on port 17888 by defa
 
 Individual commands acknowledge success with `{ "ok": true }`. Start all returns per-profile results; inspect every result rather than treating HTTP 200 as proof that every profile started. Do not automatically retry a timed-out command: it may already have been applied.
 
+GPU discovery includes `selectors_verified`: true when IDs were parsed from the selected engine, false for system inventory fallback. System/CUDA inventory IDs are not interchangeable with SRBMiner or other engine selectors. Engine diagnostics run in a blocking worker with a 60-second process limit; clients should allow 75 seconds for this request. See [GPU selection](GPU-SELECTION.md).
+
 PUT configuration and POST commands have side effects. Back up private configuration before writing it. Diagnostic responses and logs can contain sensitive values; do not paste raw responses into public issues.
