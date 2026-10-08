@@ -151,6 +151,7 @@ export type GpuDevice = {
 export type GpuDiscovery = {
   engine: string;
   source: string;
+  selectors_verified: boolean;
   devices: GpuDevice[];
   raw_excerpt: string;
   selection_hint: string;

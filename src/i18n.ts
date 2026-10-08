@@ -19,6 +19,7 @@ export type LangCode = typeof LANGUAGES[number][0];
 type Dict = Record<string, string>;
 
 const en: Dict = {
+  gpuIdsUnverified: "The miner's GPU IDs could not be verified. The system adapters below are for reference only. Refresh, or enter IDs from this miner's device listing in Manual IDs / diagnostics. Saved GPU IDs and tuning are preserved.",
   appUpdates: "Application updates", updateHelp: "Check for stable MinerDesk releases. Updates are installed only after you confirm.",
   updateAutomaticChecks: "Check automatically every 6 hours", updateCheckPrivacy: "Checks run while this interface is open and contact GitHub. No wallets, settings or mining data are sent. This preference applies to this device/browser.",
   checkUpdates: "Check now", updateChecking: "Checking…", upToDate: "You are using the latest stable version.",
@@ -71,6 +72,7 @@ const en: Dict = {
 };
 
 const fr: Dict = {
+  gpuIdsUnverified: "Les identifiants GPU du mineur n’ont pas pu être vérifiés. Les cartes système ci-dessous sont affichées à titre indicatif. Actualisez ou saisissez les identifiants de ce mineur dans Identifiants manuels / diagnostics. Les identifiants et réglages enregistrés sont conservés.",
   appUpdates: "Mises à jour de l’application",
   updateHelp: "Rechercher les versions stables de MinerDesk. L’installation nécessite votre confirmation.",
   updateAutomaticChecks: "Rechercher automatiquement toutes les 6 heures",

@@ -33,15 +33,17 @@ Open [the latest release](https://github.com/jontechlabs/MinerDesk/releases/late
 
 | Platform | Asset | Use |
 | --- | --- | --- |
-| Windows 10/11 x64 | `MinerDesk_0.7.24_x64-setup.exe` | Recommended desktop installation, including both backends. |
-| Windows x64 | `MinerDesk_0.7.24_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
-| Debian-compatible Linux x64 | `MinerDesk_0.7.24_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.24_amd64.deb`. |
-| Linux x64 | `MinerDesk_0.7.24_amd64.AppImage` | Application image; make executable before launching. |
-| Linux x64 | `MinerDesk_0.7.24_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
+| Windows 10/11 x64 | `MinerDesk_0.7.25_x64-setup.exe` | Recommended desktop installation, including both backends. |
+| Windows x64 | `MinerDesk_0.7.25_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
+| Debian-compatible Linux x64 | `MinerDesk_0.7.25_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.25_amd64.deb`. |
+| Linux x64 | `MinerDesk_0.7.25_amd64.AppImage` | Application image; make executable before launching. |
+| Linux x64 | `MinerDesk_0.7.25_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
 
 Verify downloads against `SHA256SUMS.txt` in the release. Windows builds remain **unsigned with Authenticode**. Starting with 0.7.24, installer/AppImage/Debian updates have separate cryptographic signatures verified by the app. Linux compatibility and exact validation are recorded in the release notes. macOS and ARM packages are not provided.
 
-[Code signing policy](docs/CODE-SIGNING.md): a separate Windows signing workflow is prepared, pending provider acceptance and configuration. Current 0.7.24 downloads remain unsigned. See the [privacy policy](docs/PRIVACY.md) for local data and network activity.
+[Code signing policy](docs/CODE-SIGNING.md): a separate Windows signing workflow is prepared, pending provider acceptance and configuration. Current 0.7.25 downloads remain unsigned. See the [privacy policy](docs/PRIVACY.md) for local data and network activity.
+
+GPU detection in 0.7.25 preserves SRBMiner’s global IDs across AMD/OpenCL and NVIDIA/CUDA devices. Refresh after hardware changes and select by name/PCI address; system fallback indices are informational. [GPU selection guide](docs/GPU-SELECTION.md).
 
 ## Get started
 

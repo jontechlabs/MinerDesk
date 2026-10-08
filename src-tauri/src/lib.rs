@@ -1223,6 +1223,8 @@ pub struct GpuDevice {
 pub struct GpuDiscovery {
     pub engine: String,
     pub source: String,
+    /// True only when selectors were read from this engine's device listing.
+    pub selectors_verified: bool,
     pub devices: Vec<GpuDevice>,
     pub raw_excerpt: String,
     pub selection_hint: String,
@@ -1303,10 +1305,16 @@ fn parse_engine_gpu_output(engine: &str, text: &str) -> Vec<GpuDevice> {
     let mut out = Vec::new();
     match engine {
         "srbminer" => {
-            // Typical: GPU0 : nvidia_geforce_rtx_5060_ti [blackwell] ... [BUS: 01]
-            let re = Regex::new(r"(?im)^\s*GPU\s*([0-9]+)\s*:\s*([^\r\n\[]+)(?:.*?\[BUS:\s*([^\]]+)\])?").unwrap();
-            for c in re.captures_iter(text) {
-                push_gpu_unique(&mut out, c[1].to_string(), c[2].to_string(), c.get(3).map(|m| m.as_str().trim().to_string()));
+            // Mixed OpenCL/CUDA listings use global GPU IDs, not CUDA indices:
+            // GPU1 [CUDA][0] [0000:01:00.0] : nvidia_geforce_rtx_5060_ti [...]
+            // Older versions put the bus after the name: GPU0 : ... [BUS: 01].
+            let re = Regex::new(r"(?i)^\s*GPU\s*([0-9]+)\s*((?:\[[^\]\r\n]*\]\s*)*):\s*([^\[\r\n]+)").unwrap();
+            let bus_re = Regex::new(r"(?i)\[(?:BUS:\s*([^\]]+)|((?:[0-9a-f]{4,8}:)?[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]))\]").unwrap();
+            for line in text.lines() {
+                if let Some(c) = re.captures(line) {
+                    let bus = bus_re.captures(line).and_then(|b| b.get(1).or_else(|| b.get(2))).map(|m| m.as_str().trim().to_string());
+                    push_gpu_unique(&mut out, c[1].to_string(), c[3].to_string(), bus);
+                }
             }
         }
         "lolminer" | "rigel" => {
@@ -1423,21 +1431,117 @@ fn discover_gpus(profile: &MinerProfile) -> GpuDiscovery {
     let path = PathBuf::from(profile.executable_path.trim());
     if path.is_file() {
         if let Some(args) = engine_list_device_args(&profile.engine) {
-            if let Ok(out) = background_command(&path)
-                .args(args)
-                .current_dir(path.parent().unwrap_or_else(|| Path::new(".")))
-                .output()
-            {
+            let mut command = background_command(&path);
+            command.args(&args).current_dir(path.parent().unwrap_or_else(|| Path::new(".")));
+            if let Ok(out) = capture_gpu_diagnostic(command, Duration::from_secs(60)) {
                 raw.push_str(&String::from_utf8_lossy(&out.stdout));
                 raw.push_str(&String::from_utf8_lossy(&out.stderr));
                 devices = parse_engine_gpu_output(&profile.engine, &raw);
-                if !devices.is_empty() { source = format!("{} --list-devices", profile.engine); }
+                if !devices.is_empty() { source = format!("{} {}", profile.engine, args.join(" ")); }
+            } else {
+                raw.push_str("GPU device listing failed or exceeded its 60-second limit. System adapters are shown for reference only.");
             }
         }
     }
+    let selectors_verified = !devices.is_empty();
     if devices.is_empty() { devices = system_gpu_fallback(); }
     let raw_excerpt = raw.lines().take(80).collect::<Vec<_>>().join("\n");
-    GpuDiscovery { engine: profile.engine.clone(), source, devices, raw_excerpt, selection_hint: engine_gpu_hint(&profile.engine).into() }
+    GpuDiscovery { engine: profile.engine.clone(), source, selectors_verified, devices, raw_excerpt, selection_hint: engine_gpu_hint(&profile.engine).into() }
+}
+
+// Drain both pipes while waiting: Windows pipes can fill before a large device
+// listing exits. A stuck diagnostic must not leave an engine running forever.
+fn capture_gpu_diagnostic(mut command: Command, timeout: Duration) -> Result<std::process::Output, String> {
+    let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    fn reader(stream: impl Read + Send + 'static) -> thread::JoinHandle<std::io::Result<Vec<u8>>> {
+        thread::spawn(move || { let mut bytes = Vec::new(); stream.take(1024 * 1024).read_to_end(&mut bytes)?; Ok(bytes) })
+    }
+    let out_reader = reader(stdout);
+    let err_reader = reader(stderr);
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) if started.elapsed() < timeout => thread::sleep(Duration::from_millis(20)),
+            other => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break Err(match other { Err(e) => e.to_string(), _ => "GPU diagnostic timed out".into() });
+            }
+        }
+    };
+    let stdout = out_reader.join().map_err(|_| "GPU stdout reader failed")?.map_err(|e| e.to_string())?;
+    let stderr = err_reader.join().map_err(|_| "GPU stderr reader failed")?.map_err(|e| e.to_string())?;
+    Ok(std::process::Output { status: status?, stdout, stderr })
+}
+
+#[cfg(test)]
+mod gpu_discovery_tests {
+    use super::*;
+
+    #[test]
+    fn srbminer_preserves_global_ids_in_mixed_opencl_cuda_listing() {
+        let text = "OPENCL devices\r\n\r\nGPU0  [0][0] [05:00.0] : amd_radeon_tm__graphics [gfx90c] [24974 MB] [CU: 8]\r\n\r\nCUDA devices\r\n\r\nGPU1  [CUDA][0] [0000:01:00.0] : nvidia_geforce_rtx_5060_ti [blackwell] [CC: 12.0] [SM: 36] [16310 MB]\r\n";
+        let devices = parse_engine_gpu_output("srbminer", text);
+        assert_eq!(devices.len(), 2);
+        assert_eq!((&*devices[0].selector, &*devices[0].vendor, devices[0].pci_bus.as_deref()), ("0", "AMD", Some("05:00.0")));
+        assert_eq!((&*devices[1].selector, &*devices[1].name, &*devices[1].vendor, devices[1].pci_bus.as_deref()), ("1", "nvidia geforce rtx 5060 ti", "NVIDIA", Some("0000:01:00.0")));
+    }
+
+    #[test]
+    fn srbminer_accepts_legacy_bus_and_sparse_ids_without_renumbering() {
+        let devices = parse_engine_gpu_output("srbminer", "GPU2 : amd_radeon_rx_6800 [RDNA2] [BUS: 0A]\nGPU7 : nvidia_geforce_rtx_3080 [ampere] [BUS: 01]\nGPU7 : duplicate [BUS: 01]");
+        assert_eq!(devices.iter().map(|g| g.selector.as_str()).collect::<Vec<_>>(), vec!["2", "7"]);
+        assert_eq!(devices[0].pci_bus.as_deref(), Some("0A"));
+        assert_eq!(devices[1].pci_bus.as_deref(), Some("01"));
+    }
+
+    #[test]
+    fn srbminer_ignores_errors_and_does_not_capture_the_next_rows_bus() {
+        let devices = parse_engine_gpu_output("srbminer", "Algorithm 'pearlhash' not supported on GPU0\nGPU3 : nvidia_geforce_rtx_3080\nGPU4 [CUDA][1] [0000:02:00.0] : nvidia_geforce_rtx_3090 [ampere]\nNo suitable GPU devices found");
+        assert_eq!(devices.len(), 2);
+        assert_eq!(devices[0].pci_bus, None);
+        assert_eq!(devices[1].pci_bus.as_deref(), Some("0000:02:00.0"));
+        assert!(parse_engine_gpu_output("srbminer", "GPU0 [CUDA][0] [0000:01:00.0] : [unknown]\nGPU1 :\n").is_empty());
+    }
+
+    #[test]
+    fn corrected_srbminer_selector_keeps_its_clock_override() {
+        let mut profile = MinerProfile::default();
+        profile.algorithm = "pearlhash".into(); profile.pool = "example.invalid:3360".into(); profile.wallet = "test-wallet".into();
+        profile.gpu_ids = "1".into();
+        profile.gpu_tuning = vec![GpuTuning { selector: "1".into(), core_clock: Some(2200), power_limit: None, fan: None }];
+        let args = build_engine_args(&profile).unwrap();
+        assert!(args.windows(2).any(|w| w == ["--gpu-id", "1"]));
+        assert!(args.windows(2).any(|w| w == ["--gpu-cclock0", "2200"]));
+    }
+
+    #[test]
+    fn diagnostics_drain_large_output_and_stop_at_the_deadline() {
+        #[cfg(unix)]
+        let mut verbose = Command::new("sh");
+        #[cfg(unix)]
+        verbose.args(["-c", "head -c 100000 /dev/zero; printf 'diagnostic stderr' >&2"]);
+        #[cfg(windows)]
+        let mut verbose = background_command("powershell");
+        #[cfg(windows)]
+        verbose.args(["-NoProfile", "-NonInteractive", "-Command", "[Console]::Out.Write(('x' * 100000)); [Console]::Error.Write('diagnostic stderr')"]);
+        let result = capture_gpu_diagnostic(verbose, Duration::from_secs(10)).unwrap();
+        assert!(result.status.success()); assert_eq!(result.stdout.len(), 100000); assert_eq!(result.stderr, b"diagnostic stderr");
+        #[cfg(unix)]
+        let mut stuck = Command::new("sh");
+        #[cfg(unix)]
+        stuck.args(["-c", "exec sleep 30"]);
+        #[cfg(windows)]
+        let mut stuck = background_command("powershell");
+        #[cfg(windows)]
+        stuck.args(["-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 30"]);
+        let started = Instant::now();
+        assert!(capture_gpu_diagnostic(stuck, Duration::from_millis(100)).unwrap_err().contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(3));
+    }
 }
 
 fn tuning_for<'a>(p: &'a MinerProfile, selector: &str) -> Option<&'a GpuTuning> {
@@ -2099,7 +2203,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.24").build().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.25").build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
         .send().await.map_err(|e| format!("GitHub: {e}"))?.error_for_status().map_err(|e| format!("GitHub: {e}"))?
         .json().await.map_err(|e| format!("Release GitHub invalide: {e}"))?;
@@ -2371,7 +2475,7 @@ mod local_request_tests {
 async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; }
     Json(Health {
-        version: "0.7.24",
+        version: "0.7.25",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -2412,11 +2516,17 @@ async fn api_gpus(AxumPath(id): AxumPath<String>, AxumState(s): AxumState<WebSta
     let Some(profile) = cfg.miners.iter().find(|m| m.id == id) else {
         return (StatusCode::NOT_FOUND, Json(json!({"error":"Profil mineur introuvable"}))).into_response();
     };
-    Json(discover_gpus(profile)).into_response()
+    gpu_discovery_response(profile.clone()).await
 }
 async fn api_discover_gpus(AxumState(s): AxumState<WebState>, headers: HeaderMap, Json(profile): Json<MinerProfile>) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; }
-    Json(discover_gpus(&profile)).into_response()
+    gpu_discovery_response(profile).await
+}
+async fn gpu_discovery_response(profile: MinerProfile) -> Response {
+    match tokio::task::spawn_blocking(move || discover_gpus(&profile)).await {
+        Ok(result) => Json(result).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":format!("GPU discovery worker failed: {e}")}))).into_response(),
+    }
 }
 async fn miner_command_response(core: Arc<CoreState>, id: String, action: &'static str) -> Response {
     match tokio::task::spawn_blocking(move || {
@@ -3678,7 +3788,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.24", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.25", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -3717,7 +3827,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.24 starting ({})",
+        "{} 0.7.25 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -3748,7 +3858,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.24");
+        println!("MinerDesk Headless 0.7.25");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");
