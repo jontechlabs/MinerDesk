@@ -49,6 +49,35 @@ function json(res, value, status = 200) {
   res.end(JSON.stringify(value));
 }
 
+test('a miner download taking more than five seconds fills the executable path once', async () => {
+  let calls = 0;
+  await serverTest((req, res, later) => {
+    calls++;
+    assert.equal(req.method, 'POST');
+    assert.equal(req.url, '/api/engines/srbminer/download');
+    later(() => json(res, {executable_path:'/home/test/.local/share/MinerDesk/miners/srbminer/current/SRBMiner-MULTI',version:'fixture'}), 5500);
+  }, async base => {
+    const mutations = [], statuses = [];
+    let busy = false;
+    const context = {
+      api: (url, options, token, timeout) => requestJson(base + url, options, token, timeout),
+      token: '', t: key => key, setBusy: value => { busy = value; },
+      setStatusText: value => statuses.push(value), mutateMiner: (id, change) => mutations.push([id,change]),
+    };
+    vm.createContext(context);
+    const app = fs.readFileSync(path.join(root,'src/App.tsx'),'utf8');
+    const source = 'async function download(' + app.split('async function download(')[1].split('async function pickExecutable(')[0];
+    vm.runInContext(transpile(source + '\nglobalThis.downloadMiner = download;', 'download.ts'), context);
+    await context.downloadMiner('srbminer','linux-profile');
+    assert.equal(calls,1);
+    assert.equal(busy,false);
+    assert.equal(mutations.length,1);
+    assert.equal(mutations[0][0],'linux-profile');
+    assert.equal(mutations[0][1].executable_path,'/home/test/.local/share/MinerDesk/miners/srbminer/current/SRBMiner-MULTI');
+    assert.ok(statuses.includes('srbminer fixture installed'));
+  });
+});
+
 test('reproduces 0.7.20: a slow mandatory save aborts before any POST /start', async () => {
   const requests = [];
   await serverTest((req, res, later) => {

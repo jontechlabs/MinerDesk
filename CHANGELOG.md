@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.26
+
+- Draw dark, readable select controls instead of relying on GTK's light native surface; declare the dark color scheme for native control menus.
+- Wait for managed mining-engine downloads to return their installed executable path instead of aborting after five seconds. Bound upstream HTTP requests.
+- Explain missing executable paths, launch failures, diagnostic timeouts and unsuccessful/unrecognized device listings in English and French; retain OS/loader errors in diagnostics.
+- Separate stdout and stderr before parsing GPU rows and retain the guard against using system indices as mining-engine IDs.
+- Add regressions for slow downloads, empty/missing paths and Linux permission, executable-format and shared-library errors.
+
 ## 0.7.25
 
 - Parse SRBMiner's mixed OpenCL/CUDA GPU listings, preserving global device IDs and PCI addresses instead of substituting system/CUDA-local indices.

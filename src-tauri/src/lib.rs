@@ -1225,6 +1225,8 @@ pub struct GpuDiscovery {
     pub source: String,
     /// True only when selectors were read from this engine's device listing.
     pub selectors_verified: bool,
+    /// Actionable reason why this engine's selectors could not be verified.
+    pub diagnostic_code: Option<&'static str>,
     pub devices: Vec<GpuDevice>,
     pub raw_excerpt: String,
     pub selection_hint: String,
@@ -1425,28 +1427,50 @@ fn system_gpu_fallback() -> Vec<GpuDevice> {
 }
 
 fn discover_gpus(profile: &MinerProfile) -> GpuDiscovery {
+    discover_gpus_with_fallback(profile, system_gpu_fallback)
+}
+
+fn discover_gpus_with_fallback(profile: &MinerProfile, fallback: impl FnOnce() -> Vec<GpuDevice>) -> GpuDiscovery {
     let mut raw = String::new();
     let mut devices = Vec::new();
     let mut source = "system".to_string();
+    let mut diagnostic_code = None;
     let path = PathBuf::from(profile.executable_path.trim());
-    if path.is_file() {
-        if let Some(args) = engine_list_device_args(&profile.engine) {
+    if let Some(args) = engine_list_device_args(&profile.engine) {
+        if profile.executable_path.trim().is_empty() {
+            diagnostic_code = Some("executable_required");
+            raw.push_str("No mining executable is configured. Choose the miner executable with Browse, or Download from GitHub, then refresh GPU discovery.");
+        } else if !path.is_file() {
+            diagnostic_code = Some("executable_missing");
+            raw.push_str(&format!("Mining executable is missing or is not a file: {}. Select the executable itself, not its folder.", path.display()));
+        } else {
             let mut command = background_command(&path);
             command.args(&args).current_dir(path.parent().unwrap_or_else(|| Path::new(".")));
-            if let Ok(out) = capture_gpu_diagnostic(command, Duration::from_secs(60)) {
-                raw.push_str(&String::from_utf8_lossy(&out.stdout));
-                raw.push_str(&String::from_utf8_lossy(&out.stderr));
-                devices = parse_engine_gpu_output(&profile.engine, &raw);
-                if !devices.is_empty() { source = format!("{} {}", profile.engine, args.join(" ")); }
-            } else {
-                raw.push_str("GPU device listing failed or exceeded its 60-second limit. System adapters are shown for reference only.");
+            match capture_gpu_diagnostic(command, Duration::from_secs(60)) {
+                Ok(out) => {
+                    raw.push_str(&String::from_utf8_lossy(&out.stdout));
+                    raw.push('\n');
+                    raw.push_str(&String::from_utf8_lossy(&out.stderr));
+                    devices = parse_engine_gpu_output(&profile.engine, &raw);
+                    if !devices.is_empty() { source = format!("{} {}", profile.engine, args.join(" ")); }
+                    else {
+                        diagnostic_code = Some(if out.status.success() { "no_devices" } else { "listing_failed" });
+                        raw = format!("GPU device listing returned {} without recognizable GPU IDs.\n{}", out.status, raw);
+                    }
+                }
+                Err(error) => {
+                    diagnostic_code = Some(if error.contains("timed out") { "timed_out" } else { "launch_failed" });
+                    raw.push_str(&format!("Could not run {} {}: {}", path.display(), args.join(" "), error));
+                    #[cfg(unix)]
+                    raw.push_str("\nCheck execute permission (chmod +x), a noexec filesystem, the executable architecture and missing shared libraries. Run the same device-listing command in a terminal to inspect its output.");
+                }
             }
         }
     }
     let selectors_verified = !devices.is_empty();
-    if devices.is_empty() { devices = system_gpu_fallback(); }
+    if devices.is_empty() { devices = fallback(); }
     let raw_excerpt = raw.lines().take(80).collect::<Vec<_>>().join("\n");
-    GpuDiscovery { engine: profile.engine.clone(), source, selectors_verified, devices, raw_excerpt, selection_hint: engine_gpu_hint(&profile.engine).into() }
+    GpuDiscovery { engine: profile.engine.clone(), source, selectors_verified, diagnostic_code, devices, raw_excerpt, selection_hint: engine_gpu_hint(&profile.engine).into() }
 }
 
 // Drain both pipes while waiting: Windows pipes can fill before a large device
@@ -1480,6 +1504,78 @@ fn capture_gpu_diagnostic(mut command: Command, timeout: Duration) -> Result<std
 #[cfg(test)]
 mod gpu_discovery_tests {
     use super::*;
+
+    #[test]
+    fn missing_executable_explains_why_system_ids_are_unverified() {
+        let mut profile = MinerProfile::default();
+        profile.executable_path.clear(); profile.gpu_ids = "1".into();
+        let result = discover_gpus_with_fallback(&profile, || vec![GpuDevice {
+            selector: "0".into(), name: "NVIDIA GeForce RTX 5060 Ti".into(), vendor: "NVIDIA".into(), pci_bus: None,
+        }]);
+        assert_eq!(result.diagnostic_code, Some("executable_required"));
+        assert!(!result.selectors_verified);
+        assert_eq!(result.devices[0].name, "NVIDIA GeForce RTX 5060 Ti");
+        assert!(result.raw_excerpt.contains("Browse"));
+        assert_eq!(profile.gpu_ids, "1");
+
+        let dir = tempfile::tempdir().unwrap();
+        for path in [dir.path().to_path_buf(), dir.path().join("missing-miner")] {
+            profile.executable_path = path.to_string_lossy().into();
+            let result = discover_gpus_with_fallback(&profile, Vec::new);
+            assert_eq!(result.diagnostic_code, Some("executable_missing"));
+            assert!(result.raw_excerpt.contains(&profile.executable_path));
+            assert!(!result.selectors_verified);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linux_launch_errors_are_not_replaced_with_a_generic_timeout() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("miner");
+        fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let mut profile = MinerProfile::default(); profile.executable_path = path.to_string_lossy().into();
+        let result = discover_gpus_with_fallback(&profile, Vec::new);
+        assert_eq!(result.diagnostic_code, Some("launch_failed"));
+        assert!(result.raw_excerpt.contains("Permission denied"));
+        assert!(result.raw_excerpt.contains("chmod +x"));
+        assert!(!result.raw_excerpt.contains("timed out"));
+        assert!(!result.selectors_verified);
+
+        fs::write(&path, b"not a Linux executable").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        let result = discover_gpus_with_fallback(&profile, Vec::new);
+        assert_eq!(result.diagnostic_code, Some("launch_failed"));
+        assert!(result.raw_excerpt.contains("Exec format error"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linux_device_listing_preserves_loader_errors_and_separates_output_pipes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("miner");
+        let mut profile = MinerProfile::default(); profile.executable_path = path.to_string_lossy().into();
+        fs::write(&path, "#!/bin/sh\nprintf 'libcuda.so: cannot open shared object file' >&2\nexit 127\n").unwrap();
+        make_executable(&path).unwrap();
+        let result = discover_gpus_with_fallback(&profile, Vec::new);
+        assert_eq!(result.diagnostic_code, Some("listing_failed"));
+        assert!(result.raw_excerpt.contains("127"));
+        assert!(result.raw_excerpt.contains("libcuda.so"));
+
+        fs::write(&path, "#!/bin/sh\nprintf 'banner without newline'\nprintf 'GPU0 [CUDA][0] [0000:01:00.0] : nvidia_geforce_rtx_5060_ti [blackwell]\\n' >&2\n").unwrap();
+        let result = discover_gpus_with_fallback(&profile, || panic!("Verified engine IDs must not use system fallback"));
+        assert!(result.selectors_verified);
+        assert_eq!(result.diagnostic_code, None);
+        assert_eq!(result.devices[0].selector, "0");
+        assert_eq!(result.devices[0].pci_bus.as_deref(), Some("0000:01:00.0"));
+
+        fs::write(&path, "#!/bin/sh\nprintf 'No GPU devices found\\n'\n").unwrap();
+        let result = discover_gpus_with_fallback(&profile, Vec::new);
+        assert_eq!(result.diagnostic_code, Some("no_devices"));
+        assert!(result.raw_excerpt.contains("No GPU devices found"));
+    }
 
     #[test]
     fn srbminer_preserves_global_ids_in_mixed_opencl_cuda_listing() {
@@ -2203,7 +2299,9 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.25").build().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.26")
+        .connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(120))
+        .build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
         .send().await.map_err(|e| format!("GitHub: {e}"))?.error_for_status().map_err(|e| format!("GitHub: {e}"))?
         .json().await.map_err(|e| format!("Release GitHub invalide: {e}"))?;
@@ -2475,7 +2573,7 @@ mod local_request_tests {
 async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; }
     Json(Health {
-        version: "0.7.25",
+        version: "0.7.26",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -3788,7 +3886,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.25", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.26", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -3827,7 +3925,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.25 starting ({})",
+        "{} 0.7.26 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -3858,7 +3956,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.25");
+        println!("MinerDesk Headless 0.7.26");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");

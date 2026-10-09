@@ -19,6 +19,12 @@ export type LangCode = typeof LANGUAGES[number][0];
 type Dict = Record<string, string>;
 
 const en: Dict = {
+  gpuDiagnostic_executable_required: "Choose the mining executable with Browse, or Download from GitHub, then refresh. NVIDIA's system inventory alone cannot verify this miner's GPU IDs.",
+  gpuDiagnostic_executable_missing: "The configured executable is missing or points to a folder. Choose the actual mining executable for this operating system, then refresh.",
+  gpuDiagnostic_launch_failed: "The miner could not be launched. On Linux, check execute permission, the filesystem's noexec setting and missing libraries. The exact error is in Manual IDs / diagnostics.",
+  gpuDiagnostic_timed_out: "The miner's device listing exceeded 60 seconds. Run its device-listing command in a terminal and check driver initialization. Details are in Manual IDs / diagnostics.",
+  gpuDiagnostic_listing_failed: "The miner's device listing failed. Check its output in Manual IDs / diagnostics for driver or library errors.",
+  gpuDiagnostic_no_devices: "The miner returned no recognizable GPU IDs. Check its output in Manual IDs / diagnostics; system detection does not guarantee that this miner can use the card.",
   gpuIdsUnverified: "The miner's GPU IDs could not be verified. The system adapters below are for reference only. Refresh, or enter IDs from this miner's device listing in Manual IDs / diagnostics. Saved GPU IDs and tuning are preserved.",
   appUpdates: "Application updates", updateHelp: "Check for stable MinerDesk releases. Updates are installed only after you confirm.",
   updateAutomaticChecks: "Check automatically every 6 hours", updateCheckPrivacy: "Checks run while this interface is open and contact GitHub. No wallets, settings or mining data are sent. This preference applies to this device/browser.",
@@ -72,6 +78,12 @@ const en: Dict = {
 };
 
 const fr: Dict = {
+  gpuDiagnostic_executable_required: "Choisissez l’exécutable de minage avec Parcourir ou Télécharger depuis GitHub, puis actualisez. L’inventaire NVIDIA du système ne suffit pas à vérifier les identifiants GPU de ce mineur.",
+  gpuDiagnostic_executable_missing: "L’exécutable configuré est introuvable ou désigne un dossier. Choisissez le véritable exécutable de minage pour ce système, puis actualisez.",
+  gpuDiagnostic_launch_failed: "Le mineur n’a pas pu être lancé. Sous Linux, vérifiez le droit d’exécution, un éventuel montage noexec et les bibliothèques manquantes. L’erreur exacte figure dans Identifiants manuels / diagnostics.",
+  gpuDiagnostic_timed_out: "La détection du mineur a dépassé 60 secondes. Lancez sa commande de liste des GPU dans un terminal et vérifiez l’initialisation du pilote. Consultez Identifiants manuels / diagnostics.",
+  gpuDiagnostic_listing_failed: "La liste des GPU du mineur a échoué. Consultez sa sortie dans Identifiants manuels / diagnostics pour identifier une erreur de pilote ou de bibliothèque.",
+  gpuDiagnostic_no_devices: "Le mineur n’a renvoyé aucun identifiant GPU reconnu. Consultez sa sortie dans Identifiants manuels / diagnostics ; la détection système ne garantit pas que ce mineur puisse utiliser la carte.",
   gpuIdsUnverified: "Les identifiants GPU du mineur n’ont pas pu être vérifiés. Les cartes système ci-dessous sont affichées à titre indicatif. Actualisez ou saisissez les identifiants de ce mineur dans Identifiants manuels / diagnostics. Les identifiants et réglages enregistrés sont conservés.",
   appUpdates: "Mises à jour de l’application",
   updateHelp: "Rechercher les versions stables de MinerDesk. L’installation nécessite votre confirmation.",
