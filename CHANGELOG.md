@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.27
+
+- Extend Linux SRBMiner pseudo-terminal capture to live mining, so initialization errors and mining output are visible when ordinary pipes are silent.
+- Strip terminal colors before console display and metric parsing; retain separate stdout/stderr streams and normal manual stop/restart behavior.
+- Render nonzero process exit codes as numbers instead of Rust `Some(...)` values and direct users to the miner console.
+- Add lifecycle regressions for terminal-only errors, no final newline, live metrics and stopping/restarting a running process.
+- Document watts versus MHz and how to clear both per-GPU and legacy tuning for a default-settings test.
+
 ## 0.7.26
 
 - Draw dark, readable select controls instead of relying on GTK's light native surface; declare the dark color scheme for native control menus.

@@ -852,7 +852,9 @@ impl CoreState {
                         children.remove(id);
                         if let Some(rt) = runtime.get_mut(id) {
                             mark_runtime_stopped(rt);
-                            if code.unwrap_or(0) != 0 { rt.last_error = format!("Process terminé avec le code {:?}", code); }
+                            if let Some(code) = code.filter(|code| *code != 0) {
+                                rt.last_error = format!("Process terminé avec le code {code}. Consultez la console du mineur.");
+                            }
                         }
                     }
                 }
@@ -941,9 +943,7 @@ impl CoreState {
 
         let mut command = Command::new(&path);
         command.args(&args)
-            .current_dir(path.parent().unwrap_or_else(|| Path::new(".")))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .current_dir(path.parent().unwrap_or_else(|| Path::new(".")));
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;
@@ -951,7 +951,10 @@ impl CoreState {
             const CREATE_SUSPENDED: u32 = 0x00000004;
             command.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
         }
-        let mut child = command.spawn().map_err(|e| format!("Démarrage {}: {e}", profile.name))?;
+        let (child, stdout, stderr) = spawn_engine_process(&profile.engine, command)
+            .map_err(|e| format!("Démarrage {}: {e}", profile.name))?;
+        #[cfg(target_os = "windows")]
+        let mut child = child;
         let pid = child.id();
         #[cfg(target_os = "windows")]
         {
@@ -975,8 +978,6 @@ impl CoreState {
                 ));
             }
         }
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
         {
             let mut children = self.children.lock().map_err(|_| "Processus verrouillés".to_string())?;
             let mut runtime = self.runtime.lock().map_err(|_| "Runtime verrouillé".to_string())?;
@@ -994,8 +995,8 @@ impl CoreState {
         self.record_log(id, "system", format!("[MinerDesk] [{mode}] {} {}", path.display(), args.join(" ")));
         #[cfg(target_os = "windows")]
         self.record_log(id, "system", "[MinerDesk] Windows crash guard active: Job Object / KILL_ON_JOB_CLOSE".into());
-        if let Some(out) = stdout { spawn_reader(out, Arc::clone(self), id.to_string(), "stdout"); }
-        if let Some(err) = stderr { spawn_reader(err, Arc::clone(self), id.to_string(), "stderr"); }
+        spawn_reader(stdout, Arc::clone(self), id.to_string(), "stdout");
+        spawn_reader(stderr, Arc::clone(self), id.to_string(), "stderr");
         Ok(())
     }
 
@@ -1139,8 +1140,78 @@ fn gpu_set(input: &str) -> Option<HashSet<String>> {
 fn spawn_reader<R: Read + Send + 'static>(reader: R, state: Arc<CoreState>, id: String, stream: &'static str) {
     thread::spawn(move || {
         let buf = BufReader::new(reader);
-        for line in buf.lines().map_while(Result::ok) { state.record_log(&id, stream, line); }
+        for line in buf.lines().map_while(Result::ok) {
+            state.record_log(&id, stream, strip_gpu_terminal_codes(&line).into_owned());
+        }
     });
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_mining_console_tests {
+    use super::*;
+
+    fn fixture_state(dir: &Path, script: &str) -> Arc<CoreState> {
+        let path = dir.join("fixture-miner");
+        fs::write(&path, script).unwrap();
+        make_executable(&path).unwrap();
+        let mut profile = MinerProfile::default();
+        profile.id = "fixture".into(); profile.enabled = true;
+        profile.executable_path = path.to_string_lossy().into();
+        profile.algorithm = "pearlhash".into();
+        profile.pool = "example.invalid:3360".into(); profile.wallet = "fixture-wallet".into();
+        let mut config = AppConfig::default(); config.miners = vec![profile]; config.schedules.clear();
+        Arc::new(CoreState {
+            lifecycle: Mutex::new(()), shutting_down: AtomicBool::new(false),
+            manual_schedule: Mutex::new(ManualScheduleControl::from_snapshot(StopSnapshot::new())),
+            config_path: dir.join("config.json"), config_io: Mutex::new(()), config: RwLock::new(config),
+            children: Mutex::new(HashMap::new()), runtime: Mutex::new(HashMap::new()), logs: Mutex::new(HashMap::new()),
+            pending_power: Mutex::new(None), last_power_ui_seen: Mutex::new(0),
+            dev_tip_credit_seconds: Mutex::new(HashMap::new()), dev_tip_until: Mutex::new(HashMap::new()),
+            dev_tip_last_tick: Mutex::new(HashMap::new()), dev_tip_switching: Mutex::new(HashSet::new()),
+        })
+    }
+
+    fn wait_until(mut condition: impl FnMut() -> bool) {
+        let started = Instant::now();
+        while !condition() {
+            assert!(started.elapsed() < Duration::from_secs(3), "Miner lifecycle/log capture timed out");
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn failed_terminal_only_miner_keeps_its_actual_error_in_the_console() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = fixture_state(dir.path(), "#!/bin/sh\n[ -t 1 ] && [ -t 2 ] || exit 1\nprintf '\\033[32mDetecting GPU devices...\\033[0m\\n'\nprintf '\\033[31mfixture driver initialization failed\\033[0m' >&2\nexit 1\n");
+        state.start_miner("fixture", "manual").unwrap();
+        wait_until(|| state.logs_for("fixture", MAX_LOG_LINES).iter().any(|l| l.text == "fixture driver initialization failed"));
+        wait_until(|| !state.is_running("fixture"));
+        let logs = state.logs_for("fixture", MAX_LOG_LINES);
+        assert!(logs.iter().any(|l| l.stream == "stdout" && l.text == "Detecting GPU devices..."));
+        assert!(logs.iter().any(|l| l.stream == "stderr" && l.text == "fixture driver initialization failed"));
+        assert!(logs.iter().all(|l| !l.text.contains('\x1b')));
+        let runtime = state.runtime.lock().unwrap();
+        assert!(runtime["fixture"].last_error.contains("code 1."));
+        assert!(!runtime["fixture"].last_error.contains("Some("));
+    }
+
+    #[test]
+    fn live_terminal_output_updates_metrics_and_stops_and_restarts_normally() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = fixture_state(dir.path(), "#!/bin/sh\n[ -t 1 ] && [ -t 2 ] || exit 1\nprintf '\\033[32mTotal speed: 78 TH/s\\033[0m\\n'\nexec sleep 30\n");
+        state.start_miner("fixture", "manual").unwrap();
+        wait_until(|| state.runtime.lock().unwrap()["fixture"].metrics.hashrate_hps == Some(78e12));
+        let first_pid = state.runtime.lock().unwrap()["fixture"].pid.unwrap();
+        state.restart_miner_manually("fixture").unwrap();
+        wait_until(|| state.runtime.lock().unwrap()["fixture"].metrics.hashrate_hps == Some(78e12));
+        assert_ne!(state.runtime.lock().unwrap()["fixture"].pid, Some(first_pid));
+        assert_eq!(unsafe { libc::kill(first_pid as libc::pid_t, 0) }, -1);
+        let second_pid = state.runtime.lock().unwrap()["fixture"].pid.unwrap();
+        state.stop_miner_manually("fixture").unwrap();
+        assert!(!state.is_running("fixture"));
+        assert_eq!(unsafe { libc::kill(second_pid as libc::pid_t, 0) }, -1);
+        assert!(state.children.lock().unwrap().is_empty());
+    }
 }
 
 fn unix_now() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() }
@@ -1304,6 +1375,7 @@ fn push_gpu_unique(out: &mut Vec<GpuDevice>, selector: String, name: String, pci
 }
 
 fn strip_gpu_terminal_codes(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains('\x1b') { return std::borrow::Cow::Borrowed(text); }
     Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]").unwrap().replace_all(text, "")
 }
 
@@ -1498,8 +1570,29 @@ fn capture_engine_gpu_diagnostic(engine: &str, command: Command, timeout: Durati
     capture_gpu_diagnostic(command, timeout)
 }
 
+type ProcessReader = Box<dyn Read + Send>;
+
+fn spawn_engine_process(engine: &str, mut command: Command) -> Result<(Child, ProcessReader, ProcessReader), String> {
+    // SRBMiner's Linux console can be silent with redirected pipes. Use the
+    // same terminal capture for live mining and GPU diagnostics, without a shell.
+    #[cfg(target_os = "linux")]
+    if engine == "srbminer" { return spawn_terminal_process(command); }
+    #[cfg(not(target_os = "linux"))]
+    let _ = engine;
+    let mut child = command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    Ok((child, Box::new(stdout), Box::new(stderr)))
+}
+
 #[cfg(target_os = "linux")]
-fn capture_gpu_terminal_diagnostic(mut command: Command, timeout: Duration) -> Result<std::process::Output, String> {
+fn capture_gpu_terminal_diagnostic(command: Command, timeout: Duration) -> Result<std::process::Output, String> {
+    let (child, stdout, stderr) = spawn_terminal_process(command)?;
+    wait_for_gpu_diagnostic(child, stdout, stderr, timeout)
+}
+
+#[cfg(target_os = "linux")]
+fn spawn_terminal_process(mut command: Command) -> Result<(Child, ProcessReader, ProcessReader), String> {
     use std::os::fd::FromRawFd;
     fn terminal_pair() -> Result<(fs::File, fs::File), String> {
         use std::os::fd::AsRawFd;
@@ -1507,7 +1600,7 @@ fn capture_gpu_terminal_diagnostic(mut command: Command, timeout: Duration) -> R
         // openpty creates owned descriptors. Convert each exactly once to a
         // File so every failure path closes it. No shell is involved.
         if unsafe { libc::openpty(&mut master_fd, &mut slave_fd, std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } != 0 {
-            return Err(format!("GPU terminal capture: {}", std::io::Error::last_os_error()));
+            return Err(format!("Miner terminal capture: {}", std::io::Error::last_os_error()));
         }
         let master = unsafe { fs::File::from_raw_fd(master_fd) };
         let slave = unsafe { fs::File::from_raw_fd(slave_fd) };
@@ -1535,7 +1628,7 @@ fn capture_gpu_terminal_diagnostic(mut command: Command, timeout: Duration) -> R
             }
         }
     }
-    wait_for_gpu_diagnostic(child, TerminalReader(stdout_master), TerminalReader(stderr_master), timeout)
+    Ok((child, Box::new(TerminalReader(stdout_master)), Box::new(TerminalReader(stderr_master))))
 }
 
 fn wait_for_gpu_diagnostic(mut child: std::process::Child, stdout: impl Read + Send + 'static, stderr: impl Read + Send + 'static, timeout: Duration) -> Result<std::process::Output, String> {
@@ -2381,7 +2474,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.26")
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.27")
         .connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(120))
         .build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
@@ -2655,7 +2748,7 @@ mod local_request_tests {
 async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; }
     Json(Health {
-        version: "0.7.26",
+        version: "0.7.27",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -3968,7 +4061,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.26", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.27", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -4007,7 +4100,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.26 starting ({})",
+        "{} 0.7.27 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -4038,7 +4131,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.26");
+        println!("MinerDesk Headless 0.7.27");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");
