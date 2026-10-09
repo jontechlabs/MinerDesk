@@ -2435,6 +2435,7 @@ dependencies = [
  "dirs-next",
  "flate2",
  "include_dir",
+ "libc",
  "md5",
  "mime_guess",
  "regex",

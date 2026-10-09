@@ -6,6 +6,7 @@
 - Wait for managed mining-engine downloads to return their installed executable path instead of aborting after five seconds. Bound upstream HTTP requests.
 - Explain missing executable paths, launch failures, diagnostic timeouts and unsuccessful/unrecognized device listings in English and French; retain OS/loader errors in diagnostics.
 - Separate stdout and stderr before parsing GPU rows and retain the guard against using system indices as mining-engine IDs.
+- Capture Linux SRBMiner diagnostics through separate pseudo-terminals, because its output can be silent through ordinary pipes; strip ANSI color sequences before parsing and display.
 - Add regressions for slow downloads, empty/missing paths and Linux permission, executable-format and shared-library errors.
 
 ## 0.7.25
