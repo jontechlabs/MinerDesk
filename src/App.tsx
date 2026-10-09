@@ -14,7 +14,7 @@ import type {
 
 type Tab = "dashboard" | "miners" | "schedules" | "console" | "settings";
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
-const DESKTOP_VERSION = "0.7.25";
+const DESKTOP_VERSION = "0.7.26";
 
 function resolveApiBase() {
   // Important: Tauri 2 uses an HTTP(S)-looking origin such as
@@ -554,7 +554,9 @@ export default function App() {
   async function download(engine: string, minerId: string) {
     setBusy(true); setStatusText(`${t("download")}: ${engine}…`);
     try {
-      const r = await api<InstallResult>(`/api/engines/${engine}/download`, { method:"POST" }, token);
+      // A miner archive can take longer than the default five-second API timeout.
+      // Keep waiting for the installed path, rather than leaving Executable empty.
+      const r = await api<InstallResult>(`/api/engines/${engine}/download`, { method:"POST" }, token, 300000);
       mutateMiner(minerId, { executable_path: r.executable_path }); setStatusText(`${engine} ${r.version} installed`);
     } catch(e){setStatusText(`${t("download")}: ${String(e)}`);} finally{setBusy(false);}
   }
@@ -611,7 +613,7 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.25 · multi-miner</span></div></div>
+      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.26 · multi-miner</span></div></div>
       <nav>{(["dashboard","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot"/>{t(x)}</button>)}</nav>
       <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {t("activeMiners").toUpperCase()}</div><div className={`status-pill ${backendStatus?.reachable?"on":"off"}`}><span/>{backendStatus?.reachable?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>
@@ -659,6 +661,7 @@ export default function App() {
           <div className="gpu-picker">
             <div className="gpu-picker-head"><div><strong>{t("gpuUse")}</strong><span>{gpuDiscovery?.selection_hint || t("gpuUseHelp")}</span></div><button className="mini-btn" disabled={gpuBusy} onClick={()=>loadGpus(selected.id)}>{gpuBusy?t("detecting"):t("refresh")}</button></div>
             <label className="gpu-choice all"><input type="checkbox" checked={!selected.gpu_ids.trim()} onChange={e=>{ if(e.target.checked) mutateMiner(selected.id,{gpu_ids:""}); }}/><span><strong>{t("allGpus")}</strong><small>{t("allGpusHelp")}</small></span></label>
+            {gpuDiscovery?.diagnostic_code&&<div className="gpu-diagnostic" role="status"><strong>{t("gpuDetection")}</strong><p>{t(`gpuDiagnostic_${gpuDiscovery.diagnostic_code}`)}</p></div>}
             {gpuSelectorsUnverified(gpuDiscovery,selected.engine) ? <div className="gpu-empty" role="status"><p>{t("gpuIdsUnverified")}</p>{gpuDiscovery?.devices.map(g=><div key={`${g.selector}-${g.name}`}><strong>{g.name}</strong><small> · {g.vendor}{g.pci_bus?` · PCI ${g.pci_bus}`:""}</small></div>)}</div> : gpuSelectionDevices.length ? <div className="gpu-options">{gpuSelectionDevices.map(g=>{const checked=selectedGpuTokens(selected).includes(g.selector);return <label className={`gpu-choice ${checked?"selected":""}`} key={`${g.selector}-${g.name}`}><input type="checkbox" checked={checked} onChange={e=>toggleGpu(selected,g.selector,e.target.checked)}/><span><strong>GPU {g.selector} · {g.name}</strong><small>{g.vendor}{g.pci_bus?` · PCI ${g.pci_bus}`:""}</small></span></label>})}</div> : <div className="gpu-empty">{gpuBusy?t("detecting"):t("noGpu")}</div>}
             <details className="gpu-manual"><summary>{t("manualIds")}</summary><div className="gpu-manual-body"><Field label={t("savedGpuIds")} value={selected.gpu_ids} onChange={v=>mutateMiner(selected.id,{gpu_ids:v})} placeholder="0,1 or 1:0,3:0"/><p>{t("source")}: {gpuDiscovery?.source||"—"}. SRBMiner/lolMiner/Rigel/NPMiner use indexed selectors; BzMiner may use PCI selectors. lpminer uses system detection unless you provide a supported selector in Advanced arguments.</p>{gpuDiscovery?.raw_excerpt&&<pre>{gpuDiscovery.raw_excerpt}</pre>}</div></details>
           </div>

@@ -16,3 +16,14 @@ Starting with 0.7.25, MinerDesk parses both this format and older SRBMiner rows.
 Discovery can take tens of seconds during driver initialization. The interface allows 75 seconds; an engine diagnostic is stopped after 60 seconds. A slow device listing does not occupy an HTTP request worker, and responses from a previous profile are discarded.
 
 If no suitable GPU is found, inspect the selected engine's own listing first. Choose a GPU that supports the algorithm before changing pool or overclock settings. See [SRBMiner's official parameters](https://github.com/doktor83/SRBMiner-Multi/blob/master/Parameters).
+
+## Linux: card recognized by NVIDIA, but no engine IDs
+
+Starting with 0.7.26, the picker explains why engine discovery failed and retains the exact launch/loader error under **Manual IDs / diagnostics**. A system inventory entry is not an engine device listing.
+
+1. Check **Executable**. Choose the actual Linux miner executable with **Browse**, or use **Download from GitHub** and wait for its installed path to appear. Downloading may take more than five seconds. Save the profile after the path is filled in.
+2. For SRBMiner, select `SRBMiner-MULTI`, not the parent folder or a Windows `.exe`. If you extracted it yourself, check execute permission on that file and that its filesystem permits execution.
+3. Open a terminal in the miner's directory and run `./SRBMiner-MULTI --list-devices`. This command lists devices without starting a mining job. Inspect any missing-library or CUDA/OpenCL error. `nvidia-smi` working does not guarantee that all libraries needed by the selected miner are available.
+4. Click **Refresh** and use IDs from that engine's own output. Do not copy a Windows profile's GPU ID to Linux or substitute NVIDIA's system index without checking the engine list.
+
+If a listing prints GPU rows but MinerDesk still marks them unverified, share those rows and the discovery source with the maintainer. Keep wallet credentials, private configuration and LAN tokens out of public reports.
