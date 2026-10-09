@@ -21,6 +21,8 @@ If no suitable GPU is found, inspect the selected engine's own listing first. Ch
 
 Starting with 0.7.26, the picker explains why engine discovery failed and retains the exact launch/loader error under **Manual IDs / diagnostics**. A system inventory entry is not an engine device listing.
 
+Linux SRBMiner can emit device listings and initialization errors only to terminal streams. MinerDesk 0.7.26 gives its diagnostic process separate pseudo-terminals for stdout/stderr, removes ANSI colors, and retains the normal timeout. This affects discovery only; it does not change mining arguments or choose fallback GPU IDs.
+
 1. Check **Executable**. Choose the actual Linux miner executable with **Browse**, or use **Download from GitHub** and wait for its installed path to appear. Downloading may take more than five seconds. Save the profile after the path is filled in.
 2. For SRBMiner, select `SRBMiner-MULTI`, not the parent folder or a Windows `.exe`. If you extracted it yourself, check execute permission on that file and that its filesystem permits execution.
 3. Open a terminal in the miner's directory and run `./SRBMiner-MULTI --list-devices`. This command lists devices without starting a mining job. Inspect any missing-library or CUDA/OpenCL error. `nvidia-smi` working does not guarantee that all libraries needed by the selected miner are available.

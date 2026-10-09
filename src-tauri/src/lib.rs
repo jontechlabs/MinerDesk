@@ -1303,7 +1303,14 @@ fn push_gpu_unique(out: &mut Vec<GpuDevice>, selector: String, name: String, pci
     out.push(GpuDevice { vendor: vendor_from_name(&name), selector, name, pci_bus });
 }
 
+fn strip_gpu_terminal_codes(text: &str) -> std::borrow::Cow<'_, str> {
+    Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]").unwrap().replace_all(text, "")
+}
+
 fn parse_engine_gpu_output(engine: &str, text: &str) -> Vec<GpuDevice> {
+    // Linux miners can insert terminal colors between GPU IDs and names.
+    let plain = strip_gpu_terminal_codes(text);
+    let text = plain.as_ref();
     let mut out = Vec::new();
     match engine {
         "srbminer" => {
@@ -1446,11 +1453,12 @@ fn discover_gpus_with_fallback(profile: &MinerProfile, fallback: impl FnOnce() -
         } else {
             let mut command = background_command(&path);
             command.args(&args).current_dir(path.parent().unwrap_or_else(|| Path::new(".")));
-            match capture_gpu_diagnostic(command, Duration::from_secs(60)) {
+            match capture_engine_gpu_diagnostic(&profile.engine, command, Duration::from_secs(60)) {
                 Ok(out) => {
                     raw.push_str(&String::from_utf8_lossy(&out.stdout));
                     raw.push('\n');
                     raw.push_str(&String::from_utf8_lossy(&out.stderr));
+                    raw = strip_gpu_terminal_codes(&raw).into_owned();
                     devices = parse_engine_gpu_output(&profile.engine, &raw);
                     if !devices.is_empty() { source = format!("{} {}", profile.engine, args.join(" ")); }
                     else {
@@ -1479,6 +1487,58 @@ fn capture_gpu_diagnostic(mut command: Command, timeout: Duration) -> Result<std
     let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
+    wait_for_gpu_diagnostic(child, stdout, stderr, timeout)
+}
+
+fn capture_engine_gpu_diagnostic(engine: &str, command: Command, timeout: Duration) -> Result<std::process::Output, String> {
+    #[cfg(target_os = "linux")]
+    if engine == "srbminer" { return capture_gpu_terminal_diagnostic(command, timeout); }
+    #[cfg(not(target_os = "linux"))]
+    let _ = engine;
+    capture_gpu_diagnostic(command, timeout)
+}
+
+#[cfg(target_os = "linux")]
+fn capture_gpu_terminal_diagnostic(mut command: Command, timeout: Duration) -> Result<std::process::Output, String> {
+    use std::os::fd::FromRawFd;
+    fn terminal_pair() -> Result<(fs::File, fs::File), String> {
+        use std::os::fd::AsRawFd;
+        let (mut master_fd, mut slave_fd) = (-1, -1);
+        // openpty creates owned descriptors. Convert each exactly once to a
+        // File so every failure path closes it. No shell is involved.
+        if unsafe { libc::openpty(&mut master_fd, &mut slave_fd, std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } != 0 {
+            return Err(format!("GPU terminal capture: {}", std::io::Error::last_os_error()));
+        }
+        let master = unsafe { fs::File::from_raw_fd(master_fd) };
+        let slave = unsafe { fs::File::from_raw_fd(slave_fd) };
+        for file in [&master, &slave] {
+            if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } == -1 {
+                return Err(std::io::Error::last_os_error().to_string());
+            }
+        }
+        Ok((master, slave))
+    }
+    // Separate terminals retain the boundary between stdout and stderr, even
+    // when a miner omits the last newline on one of its streams.
+    let (stdout_master, stdout_slave) = terminal_pair()?;
+    let (stderr_master, stderr_slave) = terminal_pair()?;
+    let child = command.stdin(Stdio::null()).stdout(Stdio::from(stdout_slave)).stderr(Stdio::from(stderr_slave)).spawn().map_err(|e| e.to_string())?;
+    // Command retains its Stdio handles after spawn. Close our slave copies so
+    // the master reaches EOF when the child exits or is killed at the deadline.
+    drop(command);
+    struct TerminalReader(fs::File);
+    impl Read for TerminalReader {
+        fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+            match self.0.read(bytes) {
+                Err(error) if error.raw_os_error() == Some(libc::EIO) => Ok(0), // Linux PTY EOF
+                result => result,
+            }
+        }
+    }
+    wait_for_gpu_diagnostic(child, TerminalReader(stdout_master), TerminalReader(stderr_master), timeout)
+}
+
+fn wait_for_gpu_diagnostic(mut child: std::process::Child, stdout: impl Read + Send + 'static, stderr: impl Read + Send + 'static, timeout: Duration) -> Result<std::process::Output, String> {
     fn reader(stream: impl Read + Send + 'static) -> thread::JoinHandle<std::io::Result<Vec<u8>>> {
         thread::spawn(move || { let mut bytes = Vec::new(); stream.take(1024 * 1024).read_to_end(&mut bytes)?; Ok(bytes) })
     }
@@ -1504,6 +1564,28 @@ fn capture_gpu_diagnostic(mut command: Command, timeout: Duration) -> Result<std
 #[cfg(test)]
 mod gpu_discovery_tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_terminal_only_gpu_output_is_captured_without_color_fragments() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("terminal-only-miner");
+        fs::write(&path, "#!/bin/sh\n[ -t 1 ] || exit 0\nprintf '\\033[1;37mGPU\\033[0m0 [CUDA][0] [0000:01:00.0] : \\033[32mnvidia_geforce_rtx_5060_ti\\033[0m [blackwell]\\n'\n").unwrap();
+        make_executable(&path).unwrap();
+        assert!(capture_gpu_diagnostic(Command::new(&path), Duration::from_secs(2)).unwrap().stdout.is_empty());
+        let mut profile = MinerProfile::default(); profile.executable_path = path.to_string_lossy().into();
+        let result = discover_gpus_with_fallback(&profile, || panic!("Terminal-only device listing must not use fallback indices"));
+        assert!(result.selectors_verified);
+        assert_eq!(result.devices[0].selector, "0");
+        assert_eq!(result.devices[0].name, "nvidia geforce rtx 5060 ti");
+        assert_eq!(result.devices[0].pci_bus.as_deref(), Some("0000:01:00.0"));
+        assert!(!result.raw_excerpt.contains('\x1b'));
+
+        let mut stuck = Command::new("sh"); stuck.args(["-c", "exec sleep 30"]);
+        let started = Instant::now();
+        assert!(capture_gpu_terminal_diagnostic(stuck, Duration::from_millis(100)).unwrap_err().contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(3));
+    }
 
     #[test]
     fn missing_executable_explains_why_system_ids_are_unverified() {
