@@ -37,6 +37,8 @@ use tauri::{
 use tower_http::cors::CorsLayer;
 mod schedule_control;
 mod app_updates;
+#[cfg(not(target_os = "windows"))]
+mod desktop_web;
 use app_updates::{check_app_update, install_app_update};
 #[cfg(any(target_os = "windows", test))]
 mod config_sync;
@@ -585,6 +587,8 @@ pub struct LogLine {
 }
 
 pub struct CoreState {
+    #[cfg(not(target_os = "windows"))]
+    desktop_web: desktop_web::DesktopWeb,
     // Serialize user actions, scheduled starts/stops and internal restarts. A
     // scheduler tick using an older status must not undo a completed Stop.
     lifecycle: Mutex<()>,
@@ -629,6 +633,8 @@ impl CoreState {
             serde_json::from_str(&text).map_err(|e| format!("État des pauses invalide ({}): {e}", stops_path.display()))?
         } else { StopSnapshot::new() };
         let state = Arc::new(Self {
+            #[cfg(not(target_os = "windows"))]
+            desktop_web: desktop_web::DesktopWeb::default(),
             lifecycle: Mutex::new(()),
             shutting_down: AtomicBool::new(false),
             manual_schedule: Mutex::new(ManualScheduleControl::from_snapshot(stopped)),
@@ -1161,6 +1167,7 @@ mod linux_mining_console_tests {
         profile.pool = "example.invalid:3360".into(); profile.wallet = "fixture-wallet".into();
         let mut config = AppConfig::default(); config.miners = vec![profile]; config.schedules.clear();
         Arc::new(CoreState {
+            desktop_web: desktop_web::DesktopWeb::default(),
             lifecycle: Mutex::new(()), shutting_down: AtomicBool::new(false),
             manual_schedule: Mutex::new(ManualScheduleControl::from_snapshot(StopSnapshot::new())),
             config_path: dir.join("config.json"), config_io: Mutex::new(()), config: RwLock::new(config),
@@ -1177,6 +1184,36 @@ mod linux_mining_console_tests {
             assert!(started.elapsed() < Duration::from_secs(3), "Miner lifecycle/log capture timed out");
             thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    #[test]
+    fn desktop_start_recovers_from_a_failed_worker_and_a_port_handover() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = fixture_state(dir.path(), "#!/bin/sh\nexit 99\n");
+        let old = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = old.local_addr().unwrap().port();
+        state.config.write().unwrap().web.desktop_api_port = port;
+        state.desktop_web.finish("Previous bind failed".into());
+        thread::spawn(move || { thread::sleep(Duration::from_millis(150)); drop(old); });
+        let requests: Vec<_> = (0..2).map(|_| {
+            let state = Arc::clone(&state);
+            thread::spawn(move || start_desktop_backend(&state))
+        }).collect();
+        for request in requests {
+            let status = request.join().unwrap().unwrap();
+            assert!(status.reachable);
+            assert!(!status.supported);
+            assert!(!status.task_installed);
+            assert_eq!(status.task_state, "Not applicable");
+            assert_eq!(status.port, port);
+            assert_eq!(status.executable_path, std::env::current_exe().unwrap().to_string_lossy());
+        }
+        assert!(state.desktop_web.active());
+        assert!(state.desktop_web.error().is_empty());
+        assert!(state.children.lock().unwrap().is_empty());
+        assert_eq!(state.config().miners[0].wallet, "fixture-wallet");
+        state.shutting_down.store(true, Ordering::SeqCst);
+        assert!(start_desktop_backend(&state).unwrap_err().contains("shutdown"));
     }
 
     #[test]
@@ -2474,7 +2511,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.27")
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.28")
         .connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(120))
         .build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
@@ -2748,7 +2785,7 @@ mod local_request_tests {
 async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; }
     Json(Health {
-        version: "0.7.27",
+        version: "0.7.28",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -3128,6 +3165,12 @@ async fn static_handler(uri: Uri) -> Response {
 }
 
 async fn serve_web(core: Arc<CoreState>, listen: String, port: u16, token: Option<String>, headless: bool, desktop_owned: bool) -> Result<(), String> {
+    let addr = format!("{listen}:{port}");
+    let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| format!("Web server {addr}: {e}"))?;
+    serve_bound_web(core, listener, token, headless, desktop_owned).await
+}
+
+async fn serve_bound_web(core: Arc<CoreState>, listener: tokio::net::TcpListener, token: Option<String>, headless: bool, desktop_owned: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     core.start_windows_config_sync();
     let desktop_leases = Arc::new(Mutex::new(DesktopLeaseState::default()));
@@ -3164,8 +3207,6 @@ async fn serve_web(core: Arc<CoreState>, listen: String, port: u16, token: Optio
         .layer(middleware::from_fn(mark_local_request))
         .layer(CorsLayer::permissive())
         .with_state(state);
-    let addr = format!("{listen}:{port}");
-    let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| format!("Web server {addr}: {e}"))?;
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.map_err(|e| e.to_string())
 }
 
@@ -3181,10 +3222,30 @@ async fn api_app_update(AxumState(s): AxumState<WebState>, headers: HeaderMap, Q
 
 #[cfg(not(target_os = "windows"))]
 fn spawn_desktop_web(core: Arc<CoreState>, listen: String, port: u16, token: Option<String>) {
-    thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("MinerDesk web runtime");
-        let _ = rt.block_on(serve_web(core, listen, port, token, false, false));
+    if !core.desktop_web.begin() { return; }
+    let worker_core = Arc::clone(&core);
+    let result = thread::Builder::new().name("minerdesk-desktop-web".into()).spawn(move || {
+        let address = format!("{listen}:{port}");
+        backend_diagnostic_log(&format!("Starting built-in desktop backend on {address}"));
+        let result = tokio::runtime::Runtime::new().map_err(|e| e.to_string()).and_then(|rt| rt.block_on(async {
+            // app.restart can launch the new process before the old process has
+            // released its listener. Never kill or replace another port owner.
+            let listener = desktop_web::bind_after_handover(&address, Duration::from_secs(8)).await
+                .map_err(|e| format!("Desktop backend {address}: {e}"))?;
+            backend_diagnostic_log(&format!("Built-in desktop backend listening on {address}"));
+            serve_bound_web(Arc::clone(&worker_core), listener, token, false, false).await
+        }));
+        let error = result.err().unwrap_or_else(|| "Desktop backend stopped".into());
+        backend_diagnostic_log(&error);
+        worker_core.desktop_web.finish(error);
     });
+    if let Err(error) = result {
+        let error = format!("Cannot start desktop backend thread: {error}");
+        backend_diagnostic_log(&error);
+        core.desktop_web.finish(error);
+    }
+
+
 }
 
 // ---------- Desktop Windows integration ----------
@@ -3796,16 +3857,17 @@ fn backend_status_for_port(port: u16) -> BackendStatus {
 
 #[cfg(not(target_os = "windows"))]
 fn backend_status_for_port(port: u16) -> BackendStatus {
+    let reachable = backend_health_ok(port);
     BackendStatus {
         supported: false,
-        reachable: backend_health_ok(port),
+        reachable,
         port,
         task_installed: false,
         task_state: "Not applicable".into(),
-        process_running: backend_health_ok(port),
+        process_running: reachable,
         listener_pid: None,
         listener_process: String::new(),
-        executable_path: locate_desktop_backend_executable().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
+        executable_path: std::env::current_exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
         last_task_result: String::new(),
         log_tail: backend_log_tail(30),
     }
@@ -3869,12 +3931,12 @@ fn backend_status_quick_for_port(port: u16) -> BackendStatus {
         port,
         // Keep the hot path cheap. Full Windows task/process diagnostics spawn
         // PowerShell and are intentionally only collected on demand.
-        task_installed: reachable,
-        task_state: if reachable { "Running".into() } else { "Unknown".into() },
+        task_installed: cfg!(target_os = "windows") && reachable,
+        task_state: if !cfg!(target_os = "windows") { "Not applicable".into() } else if reachable { "Running".into() } else { "Unknown".into() },
         process_running: reachable,
         listener_pid: None,
-        listener_process: if reachable { "minerdesk-backend".into() } else { String::new() },
-        executable_path: locate_desktop_backend_executable().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
+        listener_process: if reachable { if cfg!(target_os = "windows") { "minerdesk-backend".into() } else { "minerdesk".into() } } else { String::new() },
+        executable_path: if cfg!(target_os = "windows") { locate_desktop_backend_executable() } else { std::env::current_exe().ok() }.map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
         last_task_result: String::new(),
         log_tail: String::new(),
     }
@@ -3893,10 +3955,17 @@ fn get_backend_diagnostics(state: tauri::State<'_, Arc<CoreState>>) -> Result<Ba
 }
 
 #[tauri::command]
-fn start_privileged_backend(state: tauri::State<'_, Arc<CoreState>>) -> Result<BackendStatus, String> {
+async fn start_privileged_backend(state: tauri::State<'_, Arc<CoreState>>) -> Result<BackendStatus, String> {
+    let core = Arc::clone(state.inner());
+    tauri::async_runtime::spawn_blocking(move || start_desktop_backend(&core)).await.map_err(|e| e.to_string())?
+}
+
+fn start_desktop_backend(core: &Arc<CoreState>) -> Result<BackendStatus, String> {
     #[cfg(target_os = "windows")]
     if DESKTOP_EXIT_SHUTDOWN_STARTED.load(Ordering::SeqCst) { return Err("An application update or shutdown is in progress".into()); }
-    let port = state.config().web.desktop_api_port;
+    if core.shutting_down.load(Ordering::SeqCst) { return Err("An application update or shutdown is in progress".into()); }
+    let cfg = core.config();
+    let port = cfg.web.desktop_api_port;
     if backend_health_ok(port) { return Ok(backend_status_for_port(port)); }
     #[cfg(target_os = "windows")]
     {
@@ -3915,8 +3984,19 @@ fn start_privileged_backend(state: tauri::State<'_, Arc<CoreState>>) -> Result<B
     }
     #[cfg(not(target_os = "windows"))]
     {
-        return Err("Use the built-in desktop backend on this platform.".into());
+        let listen = if cfg.web.expose_lan { "0.0.0.0" } else { "127.0.0.1" }.to_string();
+        let token = if cfg.web.expose_lan { Some(cfg.web.token) } else { None };
+        spawn_desktop_web(Arc::clone(core), listen, port, token);
+        let started = Instant::now();
+        loop {
+            if backend_health_ok(port) { return Ok(backend_status_for_port(port)); }
+            if !core.desktop_web.active() { return Err(core.desktop_web.error()); }
+            if started.elapsed() >= Duration::from_secs(10) { break; }
+            thread::sleep(Duration::from_millis(100));
+        }
+        return Err(format!("Desktop backend did not become reachable on 127.0.0.1:{port}. Check the backend log."));
     }
+    #[cfg(target_os = "windows")]
     Ok(backend_status_for_port(port))
 }
 
@@ -4061,7 +4141,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.27", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.28", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -4100,7 +4180,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.27 starting ({})",
+        "{} 0.7.28 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -4131,7 +4211,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.27");
+        println!("MinerDesk Headless 0.7.28");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");

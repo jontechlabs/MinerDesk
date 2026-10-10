@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.28
+
+- Retry an occupied Linux/macOS desktop API port during update handover and retain startup errors in backend diagnostics.
+- Make Start backend retry the built-in server without elevation, with one startup worker per desktop and a bounded wait off the UI thread.
+- Display Desktop backend on Linux/macOS and reserve scheduled-task repair/restart controls for Windows.
+- Report the actual desktop executable in Linux/macOS diagnostics and reconnect using the configured backend port.
+- Add occupied-port, deadline, concurrent-start and platform-specific UI regressions.
+
 ## 0.7.27
 
 - Extend Linux SRBMiner pseudo-terminal capture to live mining, so initialization errors and mining output are visible when ordinary pipes are silent.
