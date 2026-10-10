@@ -4,6 +4,8 @@ Starting with **0.7.24**, MinerDesk checks for stable GitHub releases shortly af
 
 An available release shows its version, release notes, **Update…**, **GitHub downloads**, and **Later (24 hours)**. A different new version is not hidden by a previous version's snooze. No download or installation starts until you confirm **Download, install & restart**. Save pending configuration edits first.
 
+From **0.7.29**, every desktop **GitHub downloads** link opens the release page in your system's default browser. If the browser cannot launch, MinerDesk displays the address to copy manually. The web dashboard uses normal browser navigation.
+
 | Distribution | Update behavior |
 | --- | --- |
 | Installed Windows x64 NSIS application | Signed installer download, verification, backend/miner shutdown, installer launch, application restart. Windows UAC may require administrator approval. |
@@ -13,6 +15,12 @@ An available release shows its version, release notes, **Update…**, **GitHub d
 | Headless/browser/LAN dashboard | Notification and GitHub link only. Install on the host manually; remote clients cannot request application installation. |
 
 Only the Windows installer, Linux `.deb` and Linux AppImage are distributed for x64. There are no macOS/ARM packages in this release. An update with no valid manifest/artifact for the current distribution falls back to the release page. Debian package manager errors or cancelled administrator approval also show that link.
+
+### Linux administrator prompt troubleshooting
+
+Launch MinerDesk from the desktop Applications menu when installing a Debian update. A desktop process started through SSH can belong to a different login session from the graphical authentication agent, even when its window is visible. If authorization fails, fully quit MinerDesk, reopen it from the Applications menu and retry. Version **0.7.29** distinguishes cancellation, unavailable authorization and package-manager failures, and includes bounded installer output in the error and backend diagnostics. It does not request or store your administrator password, start a terminal authentication agent, or change system authorization rules.
+
+If your desktop has no graphical authorization agent, download the release's Debian package and install it in a terminal with `sudo apt install ./MinerDesk_0.7.29_amd64.deb`. For dependency or package-manager lock failures, use the reported installer details to resolve the cause; do not remove package-manager locks while another installation is running.
 
 Downloads use HTTPS and are verified by Tauri's updater against the public key embedded in MinerDesk. The private signing key is separate from Windows Authenticode and the pending SignPath application. A valid update signature does **not** remove Windows SmartScreen warnings. The updater rejects an unexpected repository, platform, version or artifact URL and never bypasses signature verification.
 

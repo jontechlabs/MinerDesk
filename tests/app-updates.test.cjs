@@ -7,7 +7,7 @@ const ts = require('typescript');
 const React = require('react');
 const {create, act} = require('react-test-renderer');
 const root = path.resolve(__dirname,'..');
-let calls = [], nativeUpdate, installError = '', preferences, timers, webCalls, installing;
+let calls = [], nativeUpdate, installError = '', openError = '', preferences, timers, webCalls, installing;
 function production(name) {
   const filename = path.join(root, name);
   const mod = new Module(filename, module);
@@ -20,6 +20,7 @@ function production(name) {
         calls.push([command,args]);
         if (command === 'check_app_update') return nativeUpdate;
         if (command === 'install_app_update') { args.progress.onmessage({stage:'downloading',downloaded:40,total:100}); if (installError) throw Error(installError); }
+        if (command === 'open_github_downloads' && openError) throw Error(openError);
       },
     };
     if (id.startsWith('./')) return production('src/' + id.slice(2) + '.ts');
@@ -32,7 +33,7 @@ const policy = production('src/updatePolicy.ts');
 const AppUpdates = production('src/AppUpdates.tsx').default;
 const fresh = () => ({current_version:'0.7.24',version:'0.7.25',notes:'Verified release',release_url:'https://github.com/jontechlabs/MinerDesk/releases/tag/v0.7.25',can_install:true,reason:'supported'});
 function setup() {
-  calls=[]; nativeUpdate=fresh(); installError=''; preferences=new Map(); timers=[]; webCalls=0; installing=[];
+  calls=[]; nativeUpdate=fresh(); installError=''; openError=''; preferences=new Map(); timers=[]; webCalls=0; installing=[];
   global.localStorage={getItem:k=>preferences.get(k)??null,setItem:(k,v)=>preferences.set(k,v)};
   global.window={setTimeout:fn=>{timers.push(fn);return timers.length;},setInterval:()=>99,clearTimeout:()=>{},clearInterval:()=>{}};
 }
@@ -91,4 +92,47 @@ test('automatic checks can be disabled while manual checks remain available',asy
   await check(view); assert.equal(calls.length,1);
   await act(async()=>button(view,'Later (24 hours)').props.onClick());
   assert.equal(preferences.get('minerdesk.updates.snoozedVersion'),'0.7.25'); await act(async()=>view.unmount());
+});
+
+test('every desktop download link opens the release in the native default browser',async()=>{
+  setup(); installError='Package installation failed'; let view;
+  await act(async()=>{view=create(React.createElement(AppUpdates,props()));}); await check(view);
+  await act(async()=>button(view,'Update…').props.onClick());
+  await act(async()=>button(view,'Download, install & restart').props.onClick());
+  const links=view.root.findAllByType('a'); assert.equal(links.length,3);
+  let prevented=0;
+  for(const link of links) await act(async()=>link.props.onClick({preventDefault:()=>prevented++}));
+  assert.equal(prevented,3);
+  assert.deepEqual(calls.filter(c=>c[0]==='open_github_downloads'),Array.from({length:3},()=>['open_github_downloads',{url:fresh().release_url}]));
+  assert.equal(calls.filter(c=>c[0]==='install_app_update').length,1);
+  await act(async()=>view.unmount());
+});
+
+test('browser dashboard download links retain normal navigation without native IPC',async()=>{
+  setup(); let view;
+  await act(async()=>{view=create(React.createElement(AppUpdates,props({desktop:false})));}); await check(view);
+  for(const link of view.root.findAllByType('a')) await act(async()=>link.props.onClick({preventDefault:()=>assert.fail('Browser navigation must remain enabled')}));
+  assert.equal(calls.length,0); await act(async()=>view.unmount());
+});
+
+test('a native browser failure shows a usable URL and permits retry',async()=>{
+  setup(); openError='No default browser configured'; let view;
+  await act(async()=>{view=create(React.createElement(AppUpdates,props()));}); await check(view);
+  await act(async()=>view.root.findAllByType('a')[0].props.onClick({preventDefault(){}}));
+  assert.match(text(view.toJSON()),/Could not open the default browser/);
+  assert.match(text(view.toJSON()),/No default browser configured/);
+  assert(text(view.toJSON()).includes(fresh().release_url));
+  openError='';
+  await act(async()=>view.root.findAllByType('a').at(-1).props.onClick({preventDefault(){}}));
+  assert.equal(calls.filter(c=>c[0]==='open_github_downloads').length,2);
+  assert(!calls.some(c=>c[0]==='install_app_update')); await act(async()=>view.unmount());
+});
+
+test('desktop browser opening uses the safe fallback for an untrusted release URL',async()=>{
+  setup(); nativeUpdate.release_url='javascript:alert(1)'; let view;
+  await act(async()=>{view=create(React.createElement(AppUpdates,props()));}); await check(view);
+  const link=view.root.findAllByType('a')[0]; assert.equal(link.props.href,policy.UPDATE_RELEASES_URL);
+  await act(async()=>link.props.onClick({preventDefault(){}}));
+  assert.deepEqual(calls.at(-1),['open_github_downloads',{url:policy.UPDATE_RELEASES_URL}]);
+  await act(async()=>view.unmount());
 });

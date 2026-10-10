@@ -1,6 +1,6 @@
 [package]
 name = "minerdesk"
-version = "0.7.28"
+version = "0.7.29"
 description = "Cross-platform multi-miner launcher, scheduler and headless web monitor"
 authors = ["MinerDesk"]
 edition = "2021"
@@ -52,6 +52,7 @@ clap = { version = "4", features = ["derive"] }
 semver = "1"
 tauri-plugin-updater = "~2.13.1"
 tempfile = "3"
+tauri-plugin-opener = "~2.7.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
