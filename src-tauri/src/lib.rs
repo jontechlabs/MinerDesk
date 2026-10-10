@@ -38,6 +38,7 @@ use tower_http::cors::CorsLayer;
 mod schedule_control;
 mod app_updates;
 mod external_links;
+mod mining_diagnostics;
 #[cfg(not(target_os = "windows"))]
 mod desktop_web;
 use app_updates::{check_app_update, install_app_update};
@@ -382,6 +383,9 @@ impl Default for UiConfig {
 pub struct GpuTuning {
     /// Engine selector (index for SRBMiner/lolMiner/Rigel, PCI UID for BzMiner).
     pub selector: String,
+    /// New explicit edits can clear a field without reviving old global defaults.
+    /// Missing in older profiles: preserve their original inheritance behavior.
+    pub ignore_defaults: bool,
     pub core_clock: Option<u32>,
     pub power_limit: Option<u32>,
     pub fan: Option<u8>,
@@ -816,6 +820,17 @@ impl CoreState {
             while q.len() > MAX_LOG_LINES { q.pop_front(); }
         }
         self.update_metrics_from_line(id, &text);
+        // A short-lived miner may exit before its final output reader runs.
+        if stream != "system" && mining_diagnostics::is_error_line(&text) {
+            if let Ok(mut runtime) = self.runtime.lock() {
+                if let Some(rt) = runtime.get_mut(id) {
+                    if !rt.running && (rt.last_error.starts_with("Miner exited with code ") || rt.last_error.starts_with("Processus terminé avec le code ")) {
+                        let prefix = rt.last_error.split(". ").next().unwrap_or(&rt.last_error);
+                        rt.last_error = format!("{prefix}. {}", text.chars().take(512).collect::<String>());
+                    }
+                }
+            }
+        }
     }
 
     fn update_metrics_from_line(&self, id: &str, line: &str) {
@@ -846,6 +861,7 @@ impl CoreState {
     }
 
     fn refresh_processes(&self) {
+        let french = self.config().ui.language == "fr";
         // Keep child removal and runtime updates in the same lock order used by
         // startup (children -> runtime). Never mark a replacement PID stopped
         // because an older process completed just before it was launched.
@@ -860,7 +876,8 @@ impl CoreState {
                         if let Some(rt) = runtime.get_mut(id) {
                             mark_runtime_stopped(rt);
                             if let Some(code) = code.filter(|code| *code != 0) {
-                                rt.last_error = format!("Process terminé avec le code {code}. Consultez la console du mineur.");
+                                let logs = self.logs_for(id,100);
+                                rt.last_error = mining_diagnostics::exit_message(code, french, &logs);
                             }
                         }
                     }
@@ -938,7 +955,7 @@ impl CoreState {
         let path = PathBuf::from(profile.executable_path.trim());
         if !path.is_file() { return Err(format!("Exécutable introuvable pour {}: {}", profile.name, path.display())); }
         self.check_gpu_conflict(&profile)?;
-        let args = build_engine_args(&profile)?;
+        let args = build_engine_args_with_language(&profile, cfg.ui.language == "fr")?;
 
         #[cfg(target_os = "windows")]
         let job = windows_miner_job::WindowsMinerJob::new().map_err(|e| {
@@ -999,7 +1016,7 @@ impl CoreState {
             });
         }
         let mode = if dev_tip_active { "DEV TIP" } else { "USER" };
-        self.record_log(id, "system", format!("[MinerDesk] [{mode}] {} {}", path.display(), args.join(" ")));
+        self.record_log(id, "system", format!("[MinerDesk] [{mode}] {}", mining_diagnostics::display_command(&path.to_string_lossy(), &args, cfg!(target_os = "windows"))));
         #[cfg(target_os = "windows")]
         self.record_log(id, "system", "[MinerDesk] Windows crash guard active: Job Object / KILL_ON_JOB_CLOSE".into());
         spawn_reader(stdout, Arc::clone(self), id.to_string(), "stdout");
@@ -1231,6 +1248,30 @@ mod linux_mining_console_tests {
         let runtime = state.runtime.lock().unwrap();
         assert!(runtime["fixture"].last_error.contains("code 1."));
         assert!(!runtime["fixture"].last_error.contains("Some("));
+    }
+
+    #[test]
+    fn invalid_power_is_blocked_before_spawn_and_spaced_names_remain_one_argument() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = fixture_state(dir.path(), "#!/bin/sh\nprintf '%s\\n' \"$@\"\nexit 1\n");
+        {
+            let mut config = state.config.write().unwrap();
+            let profile = &mut config.miners[0];
+            profile.gpu_ids = "0".into(); profile.name = "PRL Eco".into(); profile.api_port = Some(21550);
+            profile.power_limit = Some(2100);
+        }
+        assert!(state.start_miner("fixture", "manual").unwrap_err().contains("invalid power limit"));
+        assert!(state.children.lock().unwrap().is_empty());
+        assert!(!state.logs_for("fixture",100).iter().any(|line|line.text.starts_with("[MinerDesk] [USER]")));
+        state.config.write().unwrap().miners[0].gpu_tuning = vec![GpuTuning{selector:"0".into(),ignore_defaults:true,..Default::default()}];
+        state.start_miner("fixture", "manual").unwrap();
+        wait_until(|| state.logs_for("fixture",100).iter().any(|line|line.stream=="stdout" && line.text=="PRL Eco"));
+        wait_until(|| !state.is_running("fixture"));
+        let logs = state.logs_for("fixture",100);
+        assert!(!logs.iter().any(|line|line.stream=="stdout" && (line.text=="PRL" || line.text=="Eco")));
+        assert!(logs.iter().any(|line|line.stream=="system" && line.text.contains("--api-rig-name 'PRL Eco'")));
+        state.record_log("fixture","stderr","--gpu-plimit has invalid value '2100': use integers from 0 to 1000".into());
+        assert!(state.runtime.lock().unwrap()["fixture"].last_error.contains("invalid value '2100'"));
     }
 
     #[test]
@@ -1821,7 +1862,7 @@ mod gpu_discovery_tests {
         let mut profile = MinerProfile::default();
         profile.algorithm = "pearlhash".into(); profile.pool = "example.invalid:3360".into(); profile.wallet = "test-wallet".into();
         profile.gpu_ids = "1".into();
-        profile.gpu_tuning = vec![GpuTuning { selector: "1".into(), core_clock: Some(2200), power_limit: None, fan: None }];
+        profile.gpu_tuning = vec![GpuTuning { ignore_defaults: false, selector: "1".into(), core_clock: Some(2200), power_limit: None, fan: None }];
         let args = build_engine_args(&profile).unwrap();
         assert!(args.windows(2).any(|w| w == ["--gpu-id", "1"]));
         assert!(args.windows(2).any(|w| w == ["--gpu-cclock0", "2200"]));
@@ -1858,12 +1899,15 @@ fn tuning_for<'a>(p: &'a MinerProfile, selector: &str) -> Option<&'a GpuTuning> 
 }
 
 fn effective_core_clock(p: &MinerProfile, selector: &str) -> Option<u32> {
+    if let Some(g) = tuning_for(p, selector).filter(|g| g.ignore_defaults) { return g.core_clock; }
     tuning_for(p, selector).and_then(|g| g.core_clock).or(p.core_clock)
 }
 fn effective_power_limit(p: &MinerProfile, selector: &str) -> Option<u32> {
+    if let Some(g) = tuning_for(p, selector).filter(|g| g.ignore_defaults) { return g.power_limit; }
     tuning_for(p, selector).and_then(|g| g.power_limit).or(p.power_limit)
 }
 fn effective_fan(p: &MinerProfile, selector: &str) -> Option<u8> {
+    if let Some(g) = tuning_for(p, selector).filter(|g| g.ignore_defaults) { return g.fan; }
     tuning_for(p, selector).and_then(|g| g.fan).or(p.fan)
 }
 
@@ -2206,7 +2250,11 @@ fn start_dev_tip_monitor(state: Arc<CoreState>) {
     });
 }
 
-fn build_engine_args(p: &MinerProfile) -> Result<Vec<String>, String> {
+#[cfg(test)]
+fn build_engine_args(p: &MinerProfile) -> Result<Vec<String>, String> { build_engine_args_with_language(p,false) }
+
+fn build_engine_args_with_language(p: &MinerProfile, french: bool) -> Result<Vec<String>, String> {
+    if p.engine == "srbminer" { mining_diagnostics::validate_srb_selection(p,french)?; }
     let algo = p.algorithm.trim();
     let pool = p.pool.trim();
     let wallet = if p.merge_secondary && !p.secondary_wallet.trim().is_empty() {
@@ -2346,6 +2394,7 @@ fn build_engine_args(p: &MinerProfile) -> Result<Vec<String>, String> {
         x => return Err(format!("Unknown miner engine: {x}")),
     };
     args.extend(extra()?);
+    if p.engine == "srbminer" { mining_diagnostics::validate_srb_power(&args, french)?; }
     Ok(args)
 }
 
@@ -2384,7 +2433,7 @@ mod regression_tests_079 {
         p.worker = "MinerDesk".into();
         p.gpu_ids = "0".into();
         p.core_clock = Some(2200);
-        p.gpu_tuning = vec![GpuTuning {
+        p.gpu_tuning = vec![GpuTuning { ignore_defaults: false,
             selector: "0".into(),
             core_clock: Some(2450),
             power_limit: None,
@@ -2406,8 +2455,8 @@ mod regression_tests_079 {
         p.wallet = "prl-test".into();
         p.gpu_ids = "0,1".into();
         p.gpu_tuning = vec![
-            GpuTuning { selector: "0".into(), core_clock: Some(2300), power_limit: None, fan: None },
-            GpuTuning { selector: "1".into(), core_clock: Some(2450), power_limit: None, fan: None },
+            GpuTuning { ignore_defaults: false, selector: "0".into(), core_clock: Some(2300), power_limit: None, fan: None },
+            GpuTuning { ignore_defaults: false, selector: "1".into(), core_clock: Some(2450), power_limit: None, fan: None },
         ];
 
         let err = build_engine_args(&p).expect_err("different lpminer core clocks must be explicit");
@@ -2512,7 +2561,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.29")
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.30")
         .connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(120))
         .build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
@@ -2786,7 +2835,7 @@ mod local_request_tests {
 async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; }
     Json(Health {
-        version: "0.7.29",
+        version: "0.7.30",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -4143,7 +4192,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.29", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.30", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -4182,7 +4231,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.29 starting ({})",
+        "{} 0.7.30 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -4213,7 +4262,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.29");
+        println!("MinerDesk Headless 0.7.30");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");

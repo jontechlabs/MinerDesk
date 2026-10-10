@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.30
+
+- Display effective per-GPU tuning values and keep saved global defaults visible.
+- Preserve old-profile inheritance until an explicit GPU edit; explicitly cleared fields no longer revive legacy values. Add Clear all GPU tuning.
+- Validate generated and advanced SRBMiner power limits before launch and explain watts versus MHz and hardware limits.
+- Include recent miner error output with nonzero exit codes, including late output after exit, in English or French.
+- Quote console command arguments containing spaces without changing the direct process launch.
+- Add inheritance, clearing, serialized configuration, validation, command display and diagnostic regressions.
+
 ## 0.7.29
 
 - Open all desktop GitHub downloads links in the system's default browser on Windows and Linux; preserve ordinary navigation in browser dashboards.
