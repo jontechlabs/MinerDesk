@@ -1,5 +1,7 @@
 export type GpuTuning = {
   selector: string;
+  /** Explicit edited values, including blanks, do not inherit legacy defaults. */
+  ignore_defaults?: boolean;
   core_clock: number | null;
   power_limit: number | null;
   fan: number | null;

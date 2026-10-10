@@ -38,7 +38,7 @@ The `.deb` installs the desktop and standalone CLI. The compatibility `minerdesk
 ## Runtime and headless use
 
 ```bash
-sudo apt install ./MinerDesk_0.7.29_amd64.deb
+sudo apt install ./MinerDesk_0.7.30_amd64.deb
 minerdesk
 
 # Installed standalone CLI (or ./minerdesk-headless from the tarball)

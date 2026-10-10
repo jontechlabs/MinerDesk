@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { ApiTimeoutError, requestJson } from "./api";
 import AppUpdates from "./AppUpdates";
 import BackendPanel from "./BackendPanel";
+import GpuTuningPanel from "./GpuTuningPanel";
+import { changeGpuTuning } from "./gpuTuning";
 import type { AppUpdate } from "./updatePolicy";
 import { detectDevCoin } from "./devTip";
 import { selectableGpuDevices, gpuSelectorsUnverified } from "./gpuDiscovery";
@@ -15,7 +17,7 @@ import type {
 
 type Tab = "dashboard" | "miners" | "schedules" | "console" | "settings";
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
-const DESKTOP_VERSION = "0.7.29";
+const DESKTOP_VERSION = "0.7.30";
 
 function resolveApiBase() {
   // Important: Tauri 2 uses an HTTP(S)-looking origin such as
@@ -446,9 +448,7 @@ export default function App() {
     setConfig({ ...config, schedules: config.schedules.map(s => s.id === id ? { ...s, ...patch } : s) }); setDirty(true);
   }
   function mutateGpuTuning(m: MinerProfile, selector: string, patch: Partial<GpuTuning>) {
-    const existing = m.gpu_tuning || [];
-    const current = existing.find(x => x.selector === selector) || { selector, core_clock: null, power_limit: null, fan: null };
-    const next = [...existing.filter(x => x.selector !== selector), { ...current, ...patch }];
+    const next = changeGpuTuning(m, selector, patch);
     let gpuIds = m.gpu_ids;
     // Per-GPU tuning requires an explicit stable GPU order. If the profile was in
     // "all GPUs" mode, promote the currently discovered devices to an explicit selection.
@@ -456,9 +456,6 @@ export default function App() {
     if (!devices.some(g => g.selector === selector)) return;
     if (!gpuIds.trim() && devices.length) gpuIds = devices.map(g => g.selector).join(",");
     mutateMiner(m.id, { gpu_tuning: next, gpu_ids: gpuIds });
-  }
-  function gpuOverride(m: MinerProfile, selector: string): GpuTuning {
-    return (m.gpu_tuning || []).find(g => g.selector === selector) || { selector, core_clock: null, power_limit: null, fan: null };
   }
   function describeCommandError(error: unknown): string {
     if (error instanceof ApiTimeoutError) return `${t("commandTimeout")} (${error.timeoutMs / 1000}s · ${error.url})`;
@@ -625,7 +622,7 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.29 · multi-miner</span></div></div>
+      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.30 · multi-miner</span></div></div>
       <nav>{(["dashboard","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot"/>{t(x)}</button>)}</nav>
       <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {t("activeMiners").toUpperCase()}</div><div className={`status-pill ${backendStatus?.reachable?"on":"off"}`}><span/>{backendStatus?.reachable?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>
@@ -669,12 +666,7 @@ export default function App() {
             <details className="gpu-manual"><summary>{t("manualIds")}</summary><div className="gpu-manual-body"><Field label={t("savedGpuIds")} value={selected.gpu_ids} onChange={v=>mutateMiner(selected.id,{gpu_ids:v})} placeholder="0,1 or 1:0,3:0"/><p>{t("source")}: {gpuDiscovery?.source||"—"}. SRBMiner/lolMiner/Rigel/NPMiner use indexed selectors; BzMiner may use PCI selectors. lpminer uses system detection unless you provide a supported selector in Advanced arguments.</p>{gpuDiscovery?.raw_excerpt&&<pre>{gpuDiscovery.raw_excerpt}</pre>}</div></details>
           </div>
 
-          <div className="per-gpu-box"><div className="gpu-picker-head"><div><strong>{t("perGpuTuning")}</strong><span>{t("perGpuHelp")}</span></div></div>
-            <div className="per-gpu-table"><div className="per-gpu-row header"><span>GPU</span><span>{t("coreClock")}</span><span>{t("powerLimit")}</span><span>{t("fan")}</span></div>
-            {gpuSelectionDevices.filter(g=>!selected.gpu_ids.trim() || selectedGpuTokens(selected).includes(g.selector)).map(g=>{const tv=gpuOverride(selected,g.selector);return <div className="per-gpu-row" key={`tune-${g.selector}`}><div><strong>{g.name}</strong><small>GPU {g.selector}</small></div><MiniNum value={tv.core_clock} placeholder={selected.core_clock?.toString()||"—"} onChange={v=>mutateGpuTuning(selected,g.selector,{core_clock:v})}/><MiniNum value={tv.power_limit} placeholder={selected.power_limit?.toString()||"—"} onChange={v=>mutateGpuTuning(selected,g.selector,{power_limit:v})}/><MiniNum value={tv.fan} placeholder={selected.fan?.toString()||"—"} onChange={v=>mutateGpuTuning(selected,g.selector,{fan:v})}/></div>})}</div>
-          </div>
-
-          <details className="legacy-defaults"><summary>Default / legacy GPU tuning</summary><p>These values are used as fallbacks for old profiles or GPUs without an explicit override.</p><div className="form-grid three"><NumField label={t("coreClock")} value={selected.core_clock} onChange={v=>mutateMiner(selected.id,{core_clock:v})}/><NumField label={t("powerLimit")} value={selected.power_limit} onChange={v=>mutateMiner(selected.id,{power_limit:v})}/><NumField label={t("fan")} value={selected.fan} onChange={v=>mutateMiner(selected.id,{fan:v})}/></div></details>
+          <GpuTuningPanel profile={selected} devices={gpuSelectionDevices} language={language} onGpuChange={(selector,patch)=>mutateGpuTuning(selected,selector,patch)} onProfileChange={patch=>mutateMiner(selected.id,patch)}/>
           <div className="form-grid three"><NumField label={t("minerApiPort")} value={selected.api_port} onChange={v=>mutateMiner(selected.id,{api_port:v})}/><label className="check field-check"><input type="checkbox" checked={selected.disable_cpu} onChange={e=>mutateMiner(selected.id,{disable_cpu:e.target.checked})}/> {t("disableCpu")}</label></div><label className="check"><input type="checkbox" checked={selected.allow_gpu_overlap} onChange={e=>mutateMiner(selected.id,{allow_gpu_overlap:e.target.checked})}/> {t("gpuOverlap")}</label>
           <div className="section-title">{t("advancedArgs")}</div><textarea value={selected.extra_args} onChange={e=>mutateMiner(selected.id,{extra_args:e.target.value})} placeholder={t("advancedPlaceholder")}/>
         </div>}
@@ -740,5 +732,4 @@ export default function App() {
 function Metric({title,value,accent=false}:{title:string;value:string;accent?:boolean}){return <div className={`metric ${accent?"metric-accent":""}`}><span>{title}</span><strong>{value}</strong><i/></div>}
 function Field({label,value,onChange,placeholder="",wide=false}:{label:string;value:string;onChange:(v:string)=>void;placeholder?:string;wide?:boolean}){return <label className={`field ${wide?"wide":""}`}><span>{label}</span><input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/></label>}
 function NumField({label,value,onChange}:{label:string;value:number|null;onChange:(v:number|null)=>void}){return <label className="field"><span>{label}</span><input type="number" value={value??""} onChange={e=>onChange(e.target.value===""?null:Number(e.target.value))}/></label>}
-function MiniNum({value,onChange,placeholder=""}:{value:number|null;onChange:(v:number|null)=>void;placeholder?:string}){return <input className="mini-num" type="number" value={value??""} placeholder={placeholder} onChange={e=>onChange(e.target.value===""?null:Number(e.target.value))}/>}
 function SelectField({label,value,onChange,options}:{label:string;value:string;onChange:(v:string)=>void;options:Array<[string,string]>}){return <label className="field"><span>{label}</span><select value={value} onChange={e=>onChange(e.target.value)}>{options.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label>}

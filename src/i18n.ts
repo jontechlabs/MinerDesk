@@ -61,7 +61,15 @@ const en: Dict = {
   gpuTuning: "GPU & tuning", gpuUse: "GPUs to use", gpuUseHelp: "MinerDesk automatically adapts GPU selection and tuning syntax to the selected miner.", refresh: "Refresh", detecting: "Detecting…",
   allGpus: "All GPUs", allGpusHelp: "Let the miner automatically use all compatible GPUs", noGpu: "No detailed GPU was detected. You can use manual IDs below.",
   manualIds: "Manual IDs / diagnostics", savedGpuIds: "Saved GPU IDs", source: "Source", perGpuTuning: "Per-GPU tuning", perGpuHelp: "Core clock, power limit and fan can be set independently for every selected GPU. Blank values are left unchanged.",
-  coreClock: "Core clock MHz", powerLimit: "Power limit W", fan: "Fan %", inherit: "Default / unchanged", minerApiPort: "Miner API port", disableCpu: "Disable CPU mining",
+  gpuTuningUnits: "GPU core clock uses MHz; power limit uses watts (W). These are not CPU clock or memory limits.",
+  gpuTuningBlank: "The values shown are the effective settings, including old defaults. Clearing a GPU field leaves that setting unchanged by the miner.",
+  clearGpuTuning: "Clear all GPU tuning",
+  gpuDefaults: "Global / legacy GPU defaults",
+  gpuDefaultsActive: "saved values present",
+  gpuDefaultsHelp: "Older profiles may have saved global tuning. It applies to GPUs without an explicit edit. Edited GPU rows, including blank fields, no longer inherit these defaults.",
+  srbPowerHelp: "SRBMiner accepts power-limit integers from 0 to 1000 W. This parser range is not your GPU’s permitted power range: the driver and hardware may allow much less. Leave blank to use the miner’s current/default behavior.",
+  srbPowerInvalid: "Power limit {value} W is invalid for SRBMiner (0–1000). A value such as 2100 MHz belongs in GPU core clock, not power limit. Clear the power field or use Clear all GPU tuning.",
+  coreClock: "GPU core clock MHz", powerLimit: "Power limit W", fan: "Fan %", inherit: "Default / unchanged", minerApiPort: "Miner API port", disableCpu: "Disable CPU mining",
   gpuOverlap: "Allow the same GPU to be shared with another process (advanced / dual mining)", advancedArgs: "Advanced arguments", advancedPlaceholder: "Miner-specific arguments not covered by MinerDesk",
   scheduler: "Scheduler", schedulerHelp: "The scheduler runs in the backend even when no web window is open.", addWindow: "Add window", noSchedule: "No schedule configured.", scheduleName: "Mining window", active: "Enabled", delete: "Delete", startTime: "Start", endTime: "End", profilesAffected: "Profiles", crossesMidnight: "Windows crossing midnight are handled automatically (for example 22:00 → 07:00).",
   lines: "lines", webTitle: "Web interface & headless", webHelp: "The desktop app always runs a local web/API server. It can optionally be exposed to your LAN.", currentMode: "Current mode", minerCrashGuard: "Miner crash guard", minerCrashGuardActive: "Active · Windows Job Object", minerCrashGuardUnavailable: "Unavailable / not applicable", localUrl: "Local web URL", configFile: "Configuration", webPort: "Web port", lanAccess: "Allow LAN access", lanAccessHelp: "Bind the desktop web server to 0.0.0.0 so other devices on your LAN can open MinerDesk.", accessToken: "Remote access token", generateToken: "Generate token", restartRequired: "Changing the web port or LAN binding requires restarting MinerDesk.", lanUrl: "LAN URL example",
@@ -80,6 +88,15 @@ const en: Dict = {
 };
 
 const fr: Dict = {
+  gpuTuningUnits: "La fréquence du cœur GPU est en MHz ; la limite de puissance est en watts (W). Ce ne sont ni la fréquence CPU ni une limite mémoire.",
+  gpuTuningBlank: "Les valeurs affichées sont les réglages effectifs, anciens réglages inclus. Vider un champ GPU laisse ce réglage inchangé par le mineur.",
+  clearGpuTuning: "Effacer tous les réglages GPU",
+  gpuDefaults: "Réglages GPU globaux / anciens",
+  gpuDefaultsActive: "valeurs enregistrées présentes",
+  gpuDefaultsHelp: "Les anciens profils peuvent contenir des réglages globaux. Ils s’appliquent aux GPU sans modification explicite. Les lignes GPU modifiées, champs vides compris, ne reprennent plus ces valeurs.",
+  srbPowerHelp: "SRBMiner accepte une limite de puissance entière de 0 à 1000 W. Cette plage de saisie n’est pas celle autorisée par votre carte : le pilote et le matériel peuvent imposer une limite bien inférieure. Laissez vide pour conserver le comportement actuel/par défaut du mineur.",
+  srbPowerInvalid: "La limite de puissance {value} W est invalide pour SRBMiner (0–1000). Une fréquence telle que 2100 MHz se saisit dans la fréquence du cœur GPU, pas dans la puissance. Videz le champ puissance ou utilisez Effacer tous les réglages GPU.",
+
   gpuDiagnostic_executable_required: "Choisissez l’exécutable de minage avec Parcourir ou Télécharger depuis GitHub, puis actualisez. L’inventaire NVIDIA du système ne suffit pas à vérifier les identifiants GPU de ce mineur.",
   gpuDiagnostic_executable_missing: "L’exécutable configuré est introuvable ou désigne un dossier. Choisissez le véritable exécutable de minage pour ce système, puis actualisez.",
   gpuDiagnostic_launch_failed: "Le mineur n’a pas pu être lancé. Sous Linux, vérifiez le droit d’exécution, un éventuel montage noexec et les bibliothèques manquantes. L’erreur exacte figure dans Identifiants manuels / diagnostics.",

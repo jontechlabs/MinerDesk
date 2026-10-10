@@ -2446,7 +2446,7 @@ dependencies = [
 
 [[package]]
 name = "minerdesk"
-version = "0.7.29"
+version = "0.7.30"
 dependencies = [
  "axum",
  "chrono",
