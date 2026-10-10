@@ -189,7 +189,8 @@ pub async fn install_app_update(app: tauri::AppHandle, state: tauri::State<'_, D
     { core.cancel_power_action(); core.stop_all(); }
     #[cfg(target_os = "linux")]
     let result = if target == "linux-x86_64-deb" {
-        install_deb_verified(&bytes)
+        tauri::async_runtime::spawn_blocking(move || install_deb_verified(&bytes)).await
+            .map_err(|e| e.to_string()).and_then(|result| result)
     } else { update.install(bytes).map_err(|e| e.to_string()) };
     #[cfg(not(target_os = "linux"))]
     let result = update.install(bytes).map_err(|e| e.to_string());
@@ -213,13 +214,66 @@ fn install_deb_verified(bytes: &[u8]) -> Result<(), String> {
     let directory = tempfile::Builder::new().prefix("minerdesk-update-").tempdir().map_err(|e| e.to_string())?;
     let package = directory.path().join("MinerDesk.deb");
     std::fs::write(&package, bytes).map_err(|e| e.to_string())?;
-    let status = std::process::Command::new("/usr/bin/pkexec").args(["/usr/bin/dpkg", "-i"]).arg(package).status().map_err(|e| e.to_string())?;
-    if status.success() { Ok(()) } else { Err("The system package installer failed or administrator approval was cancelled".into()) }
+    let output = std::process::Command::new("/usr/bin/pkexec")
+        .args(["--disable-internal-agent", "/usr/bin/dpkg", "-i"]).arg(package).output().map_err(|e| e.to_string())?;
+    deb_install_result(output)
+}
+
+#[cfg(target_os = "linux")]
+fn deb_install_result(output: std::process::Output) -> Result<(), String> {
+    if output.status.success() { return Ok(()); }
+    let reason = match output.status.code() {
+        Some(126) => "Administrator approval was cancelled. Retry the update and approve the operating system's password dialog.".into(),
+        Some(127) => "Administrator authorization failed or is unavailable. Quit MinerDesk and reopen it from the desktop Applications menu, then retry. If no password dialog appears, install the GitHub .deb manually using sudo apt install.".into(),
+        Some(code) => format!("The system package installer failed with exit code {code}. Check the details below for package dependencies or a package-manager lock."),
+        None => "The system package installer was interrupted before completion.".into(),
+    };
+    let details = if output.stderr.is_empty() { &output.stdout } else { &output.stderr };
+    let details: String = String::from_utf8_lossy(details).trim().chars().take(4096).collect();
+    let error = if details.is_empty() { reason } else { format!("{reason}\n{details}") };
+    super::backend_diagnostic_log(&format!("Debian update failed: {error}"));
+    Err(error)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "linux")]
+    fn installer_output(code: i32, stderr: &str) -> std::process::Output {
+        use std::os::unix::process::ExitStatusExt;
+        std::process::Output { status: std::process::ExitStatus::from_raw(code << 8), stdout: vec![], stderr: stderr.as_bytes().to_vec() }
+    }
+    #[cfg(target_os = "linux")]
+    #[test] fn debian_install_success_does_not_report_an_error() {
+        assert!(deb_install_result(installer_output(0, "Routine installer output")).is_ok());
+    }
+    #[cfg(target_os = "linux")]
+    #[test] fn debian_authorization_failure_and_cancel_are_distinct() {
+        let cancelled = deb_install_result(installer_output(126, "Not authorized")).unwrap_err();
+        assert!(cancelled.contains("approval was cancelled"));
+        assert!(!cancelled.contains("package installer failed"));
+        let unavailable = deb_install_result(installer_output(127, "No authentication agent found")).unwrap_err();
+        assert!(unavailable.contains("desktop Applications menu"));
+        assert!(unavailable.contains("No authentication agent found"));
+        assert!(!unavailable.contains("approval was cancelled"));
+    }
+    #[cfg(target_os = "linux")]
+    #[test] fn debian_package_errors_preserve_exit_code_and_details() {
+        let error = deb_install_result(installer_output(2, "dpkg: error: lock is held by another process")).unwrap_err();
+        assert!(error.contains("exit code 2"));
+        assert!(error.contains("lock is held by another process"));
+        assert!(!error.contains("approval was cancelled"));
+        let mut output = installer_output(1, ""); output.stdout = b"Unmet dependencies".to_vec();
+        assert!(deb_install_result(output).unwrap_err().contains("Unmet dependencies"));
+    }
+    #[cfg(target_os = "linux")]
+    #[test] fn debian_interrupted_install_and_long_diagnostics_are_handled() {
+        use std::os::unix::process::ExitStatusExt;
+        let mut output = installer_output(0, ""); output.status = std::process::ExitStatus::from_raw(15);
+        assert!(deb_install_result(output).unwrap_err().contains("interrupted"));
+        let error = deb_install_result(installer_output(1, &"é".repeat(10000))).unwrap_err();
+        assert_eq!(error.matches('é').count(),4096);
+    }
     fn release(tag: &str) -> Release { Release { tag_name: tag.into(), html_url: format!("https://github.com/jontechlabs/MinerDesk/releases/tag/{tag}"), body: None, draft: false, prerelease: false } }
     #[test] fn stable_versions_only_no_downgrades() {
         assert_eq!(release_version(&release("v0.7.25"), "0.7.24").unwrap(), Some("0.7.25".into()));

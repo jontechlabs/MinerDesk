@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.29
+
+- Open all desktop GitHub downloads links in the system's default browser on Windows and Linux; preserve ordinary navigation in browser dashboards.
+- Restrict the native opening command to MinerDesk release pages and show a copyable address if browser launch fails.
+- Report Linux Debian authorization cancellation, unavailable approval and package-manager exit codes with bounded installer diagnostics.
+- Run Debian installation outside the interface's async worker and disable unusable terminal authentication fallback in the graphical app.
+- Add native-link, browser-dashboard, URL validation and installer error regressions.
+
 ## 0.7.28
 
 - Retry an occupied Linux/macOS desktop API port during update handover and retain startup errors in backend diagnostics.

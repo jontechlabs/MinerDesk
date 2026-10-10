@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { safeReleaseUrl, shouldCheckUpdate, shouldNotifyUpdate, UPDATE_SNOOZE_MS, type AppUpdate, type UpdateProgress } from "./updatePolicy";
@@ -72,19 +72,28 @@ export default function AppUpdates({ desktop, language, settings, dirty, busy, c
   }
   const fallback = t(`updateReason_${update?.reason || "web"}`);
   const link = safeReleaseUrl(update?.release_url || "");
+  async function openDownloads(event: MouseEvent<HTMLAnchorElement>) {
+    if (!desktop) return;
+    event.preventDefault();
+    try { await invoke("open_github_downloads", { url: link }); }
+    catch (e) { setError(`${t("updateBrowserFailed")} ${String(e)} ${link}`); }
+  }
+  function downloadLink(className?: string) {
+    return <a className={className} href={link} target="_blank" rel="noreferrer" onClick={event => void openDownloads(event)}>{t("updateDownloadPage")}</a>;
+  }
   const percent = progress?.total ? Math.min(100, Math.floor(100 * progress.downloaded / progress.total)) : null;
   return <>
     {settings && <div className="card update-settings">
       <div className="card-head"><div><h2>{t("appUpdates")}</h2><p>{t("updateHelp")}</p></div><button className="mini-btn" disabled={checking || installing || busy} onClick={() => void check(true)}>{checking ? t("updateChecking") : t("checkUpdates")}</button></div>
       <label className="windows-option"><input type="checkbox" checked={enabled} disabled={installing} onChange={e => {setEnabled(e.target.checked); localStorage.setItem(key("enabled"), String(e.target.checked));}}/><span><strong>{t("updateAutomaticChecks")}</strong><small>{t("updateCheckPrivacy")}</small></span></label>
       {message && <p role="status">{message}</p>}
-      {update?.version && <p>{t("updateAvailable").replace("{version}", update.version)} <a href={link} target="_blank" rel="noreferrer">{t("updateDownloadPage")}</a></p>}
+      {update?.version && <p>{t("updateAvailable").replace("{version}", update.version)} {downloadLink()}</p>}
     </div>}
     {visible && update?.version && !confirm && !installing && <div className="update-banner" role="status">
       <div><strong>{t("updateAvailable").replace("{version}", update.version)}</strong><p>{update.can_install ? t("updateReady") : fallback}</p></div>
-      <div className="update-actions">{update.can_install && <button className="btn primary" disabled={busy} onClick={() => {setConfirm(true); setError("");}}>{t("updateInstall")}</button>}<a className="btn ghost" href={link} target="_blank" rel="noreferrer">{t("updateDownloadPage")}</a><button className="mini-btn" onClick={later}>{t("updateLater")}</button></div>
+      <div className="update-actions">{update.can_install && <button className="btn primary" disabled={busy} onClick={() => {setConfirm(true); setError("");}}>{t("updateInstall")}</button>}{downloadLink("btn ghost")}<button className="mini-btn" onClick={later}>{t("updateLater")}</button></div>
     </div>}
-    {error && <div className="command-error" role="alert"><div><strong>{t("appUpdates")}</strong><p>{error}</p><a href={link} target="_blank" rel="noreferrer">{t("updateDownloadPage")}</a></div><button className="mini-btn" onClick={() => setError("")}>{t("dismissError")}</button></div>}
+    {error && <div className="command-error" role="alert"><div><strong>{t("appUpdates")}</strong><p>{error}</p>{downloadLink()}</div><button className="mini-btn" onClick={() => setError("")}>{t("dismissError")}</button></div>}
     {(confirm || installing) && <div className="power-modal-backdrop"><div className="power-modal update-modal" role="dialog" aria-modal="true" aria-labelledby="update-title">
       <h2 id="update-title">{t("updateAvailable").replace("{version}", update?.version || "")}</h2>
       {installing ? <><p role="status">{t(progress?.stage === "installing" ? "updateInstalling" : "updateDownloading")}{percent !== null ? ` ${percent}%` : ""}</p><progress aria-label={t("updateDownloading")} value={percent ?? undefined} max={100}/><p className="muted">{t("updateWait")}</p></> : <>
