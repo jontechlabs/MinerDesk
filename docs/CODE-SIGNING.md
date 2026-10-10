@@ -4,7 +4,7 @@
 
 The SignPath Foundation application was submitted on 6 October 2026 and is awaiting review. Windows Authenticode signing remains inactive. From 0.7.24, [application updates](UPDATES.md) use a separate cryptographic signature; this does not imply a Windows publisher certificate or SignPath approval.
 
-**MinerDesk 0.7.27 Windows downloads are unsigned with Authenticode.** The signed Windows workflow is prepared but cannot sign anything until a trusted provider has accepted the project and its account is configured. No signing subscription or certificate has been obtained, and no claim of SignPath Foundation endorsement is made.
+**MinerDesk 0.7.28 Windows downloads are unsigned with Authenticode.** The signed Windows workflow is prepared but cannot sign anything until a trusted provider has accepted the project and its account is configured. No signing subscription or certificate has been obtained, and no claim of SignPath Foundation endorsement is made.
 
 The proposed provider is [SignPath Foundation](https://signpath.org/), subject to [their eligibility review and terms](https://signpath.org/terms). Their certificate identifies **SignPath Foundation** as the publisher. The free program requires manual approval of signing requests; compilation, submission, signature verification and packaging are automated. Acceptance of a mining orchestration application is not guaranteed.
 

@@ -50,7 +50,7 @@ publish/windows-x64/
   MinerDesk.exe
   minerdesk-backend.exe
   minerdesk-headless.exe
-  MinerDesk_0.7.27_x64-setup.exe
+  MinerDesk_0.7.28_x64-setup.exe
   build-info.json
 ```
 

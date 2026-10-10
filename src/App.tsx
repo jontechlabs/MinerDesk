@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ApiTimeoutError, requestJson } from "./api";
 import AppUpdates from "./AppUpdates";
+import BackendPanel from "./BackendPanel";
 import type { AppUpdate } from "./updatePolicy";
 import { detectDevCoin } from "./devTip";
 import { selectableGpuDevices, gpuSelectorsUnverified } from "./gpuDiscovery";
@@ -14,7 +15,7 @@ import type {
 
 type Tab = "dashboard" | "miners" | "schedules" | "console" | "settings";
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
-const DESKTOP_VERSION = "0.7.27";
+const DESKTOP_VERSION = "0.7.28";
 
 function resolveApiBase() {
   // Important: Tauri 2 uses an HTTP(S)-looking origin such as
@@ -185,7 +186,7 @@ export default function App() {
         startup: loaded.ui.start_with_windows ?? false, tray: loaded.ui.close_to_tray ?? false,
       };
       if (isTauri && h.version !== DESKTOP_VERSION) {
-        setStatusText(`Backend version ${h.version} detected; desktop is ${DESKTOP_VERSION}. Restart/reinstall the privileged backend.`);
+        setStatusText(`Backend version ${h.version} detected; desktop is ${DESKTOP_VERSION}. Restart MinerDesk and check for another running instance.`);
       } else {
         setStatusText(h.headless ? t("headlessMode") : t("desktopMode"));
       }
@@ -196,7 +197,7 @@ export default function App() {
       return true;
     } catch (e) {
       setStatusText(`Connection failed: ${String(e)}`);
-      setBootSplashStatus("Waiting for the privileged backend…");
+      setBootSplashStatus("Waiting for the MinerDesk backend…");
       if (isTauri) void refreshBackendStatus(false);
       if (hideSplashOnFailure) window.setTimeout(hideBootSplash, 1200);
       return false;
@@ -237,6 +238,7 @@ export default function App() {
     setBackendBusy(true);
     try {
       const next = await invoke<BackendStatus>(command);
+      localStorage.setItem("minerdesk.web.port", String(next.port));
       backendFailureCount.current = next.reachable ? 0 : backendFailureCount.current;
       backendStatusRef.current = next;
       setBackendStatus(next);
@@ -254,7 +256,16 @@ export default function App() {
     let cancelled = false;
 
     const bootstrap = async () => {
-      setBootSplashStatus("Checking privileged backend…");
+      setBootSplashStatus("Checking MinerDesk backend…");
+      if (isTauri) {
+        try {
+          const native = await invoke<BackendStatus>("get_backend_status");
+          if (cancelled) return;
+          localStorage.setItem("minerdesk.web.port", String(native.port));
+          backendStatusRef.current = native;
+          setBackendStatus(native);
+        } catch { /* the startup command below also returns the configured port */ }
+      }
       if (await refreshBase(false)) return;
       if (cancelled) return;
 
@@ -264,18 +275,19 @@ export default function App() {
         return;
       }
 
-      setBootSplashStatus("Starting privileged backend… Approve the Windows prompt if requested.");
+      setBootSplashStatus("Starting MinerDesk backend…");
       setBackendBusy(true);
       try {
         const next = await invoke<BackendStatus>("start_privileged_backend");
         if (cancelled) return;
+        localStorage.setItem("minerdesk.web.port", String(next.port));
         backendFailureCount.current = next.reachable ? 0 : backendFailureCount.current;
         backendStatusRef.current = next;
         setBackendStatus(next);
 
-        if (!next.reachable) throw new Error("The privileged backend did not become reachable.");
+        if (!next.reachable) throw new Error("The MinerDesk backend did not become reachable.");
 
-        setBootSplashStatus("Privileged backend connected. Loading miners and schedules…");
+        setBootSplashStatus("MinerDesk backend connected. Loading miners and schedules…");
         for (let attempt = 0; attempt < 12 && !cancelled; attempt += 1) {
           if (await refreshBase(false)) return;
           await new Promise(resolve => window.setTimeout(resolve, 250));
@@ -613,7 +625,7 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.27 · multi-miner</span></div></div>
+      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.28 · multi-miner</span></div></div>
       <nav>{(["dashboard","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot"/>{t(x)}</button>)}</nav>
       <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {t("activeMiners").toUpperCase()}</div><div className={`status-pill ${backendStatus?.reachable?"on":"off"}`}><span/>{backendStatus?.reachable?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>
@@ -627,16 +639,7 @@ export default function App() {
         <button className="mini-btn" onClick={() => setCommandError("")}>{t("dismissError")}</button>
       </div>}
 
-      {isTauri&&backendStatus&&<div className={`backend-strip ${backendStatus.reachable?"online":"offline"}`}>
-        <div className="backend-main"><span className="backend-dot"/><div><strong>{t("privilegedBackend")}</strong><small>{backendStatus.reachable?`${t("backendConnected")} · 127.0.0.1:${backendStatus.port}`:`${t("backendOffline")} · ${backendStatus.task_state==="Unknown"?t("backendChecking"):(backendStatus.task_installed?t("taskInstalled"):t("taskMissing"))}`}{backendStatus.listener_process&&!backendStatus.reachable?` · ${t("portUsedBy")} ${backendStatus.listener_process}`:""}</small></div></div>
-        <div className="backend-actions">
-          {!backendStatus.reachable&&<button className="mini-btn primary-lite" disabled={backendBusy} onClick={()=>void runBackendAction("start_privileged_backend")}>{backendBusy?t("startingBackend"):t("startBackend")}</button>}
-          {backendStatus.reachable&&<button className="mini-btn" disabled={backendBusy} onClick={()=>void runBackendAction("restart_privileged_backend")}>{t("restartBackend")}</button>}
-          <button className="mini-btn" disabled={backendBusy} onClick={()=>void runBackendAction("repair_privileged_backend")}>{t("repairBackend")}</button>
-          <button className="mini-btn" disabled={backendBusy} onClick={()=>void refreshBackendStatus(true)}>{t("refresh")}</button>
-        </div>
-        {!backendStatus.reachable&&<details className="backend-details"><summary>{t("backendDiagnostics")}</summary><div className="backend-diag-grid"><span>{t("taskState")}</span><code>{backendStatus.task_state||"—"}</code><span>{t("lastTaskResult")}</span><code>{backendStatus.last_task_result||"—"}</code><span>{t("backendExecutable")}</span><code>{backendStatus.executable_path||"—"}</code><span>{t("listener")}</span><code>{backendStatus.listener_pid?`${backendStatus.listener_process||"process"} · PID ${backendStatus.listener_pid}`:"—"}</code></div>{backendStatus.log_tail&&<pre className="backend-log">{backendStatus.log_tail}</pre>}</details>}
-      </div>}
+      {isTauri && backendStatus && <BackendPanel status={backendStatus} busy={backendBusy} language={language} onAction={command => void runBackendAction(command)} onRefresh={() => void refreshBackendStatus(true)}/> }
 
       {tab==="dashboard"&&<section className="page">
         <div className="metric-grid"><Metric title={t("activeMiners")} value={`${summary.running} / ${filtered.length}`} accent/><Metric title={t("totalPower")} value={`${summary.power.toFixed(0)} W`}/><Metric title={t("maxTemp")} value={summary.temp?`${summary.temp.toFixed(0)} °C`:"—"}/><Metric title={t("sharesAR")} value={`${summary.accepted} / ${summary.rejected}`}/></div>
