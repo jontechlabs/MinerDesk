@@ -6,7 +6,7 @@
 - Map the new settings to SRBMiner, lolMiner, BzMiner and Rigel; add NPMiner's CUDA memory-clock lock. Keep lpminer's documented shared core-clock control.
 - Use responsive GPU cards and explain fixed clocks, offsets, driver-supported memory states and engine limitations.
 - Extend explicit clearing and old-profile compatibility to all six fields without applying automatic overclock presets.
-- Reject incomplete SRBMiner/NPMiner tuning lists and invalid fan percentages with actionable messages.
+- Reject incomplete SRBMiner/NPMiner tuning lists, incomplete BzMiner memory/offset lists and invalid fan percentages with actionable messages; never insert an implicit zero for BzMiner's new controls.
 - Cover signed serialization, global/per-GPU arguments, selected device order, skip markers, clearing and process start/stop/restart.
 
 ## 0.7.30
