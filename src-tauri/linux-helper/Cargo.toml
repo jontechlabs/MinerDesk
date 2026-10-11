@@ -1,0 +1,16 @@
+[package]
+name = "minerdesk-linux-helper"
+version = "0.7.33"
+edition = "2021"
+publish = false
+
+[dependencies]
+libc = "0.2"
+
+[[bin]]
+name = "minerdesk-linux-helper"
+path = "main.rs"
+
+[profile.release]
+strip = true
+lto = true

@@ -8,6 +8,7 @@ import argparse
 import base64
 from datetime import datetime, timezone
 import hashlib
+import io
 import json
 from pathlib import Path
 import shutil
@@ -70,7 +71,7 @@ def main():
         if subsystem != (3 if name == 'minerdesk-headless.exe' else 2):
             raise RuntimeError('Wrong Windows executable subsystem')
         records[name] = {'machine':'x86_64','subsystem':subsystem}
-    for name in ['minerdesk','minerdesk-headless']:
+    for name in ['minerdesk','minerdesk-headless','minerdesk-linux-helper']:
         raw = (linux / name).read_bytes()[:64]
         if raw[:4] != b'\x7fELF' or raw[4] != 2 or struct.unpack_from('<H', raw, 18)[0] != 62:
             raise RuntimeError('Wrong Linux executable architecture')
@@ -81,17 +82,21 @@ def main():
     package_version = subprocess.check_output(['dpkg-deb','-f',str(linux / deb),'Version'],text=True).strip()
     if package_name != 'miner-desk' or package_version != version:
         raise RuntimeError('Debian package registration differs from the updater contract')
+    with tarfile.open(fileobj=io.BytesIO(subprocess.check_output(['dpkg-deb','--fsys-tarfile',str(linux / deb)]))) as package:
+        helpers = [entry for entry in package.getmembers() if entry.name.endswith('/resources/minerdesk-linux-helper')]
+        if len(helpers) != 1 or helpers[0].mode != 0o755 or package.extractfile(helpers[0]).read() != (linux / 'minerdesk-linux-helper').read_bytes():
+            raise RuntimeError('Debian elevation helper is missing, non-executable or differs from tested binary')
     for directory, name in [(windows, installer), (windows, 'minerdesk-headless.exe'), (linux, appimage), (linux, deb)]:
         shutil.copyfile(directory / name, out / name)
     with zipfile.ZipFile(out / f'MinerDesk_{version}_windows-x64.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
         for name in records: archive.write(windows / name, name)
         for name in ['LICENSE','SETUP-WINDOWS.md','SECURITY.md','docs/UPDATES.md','docs/QUANTUS.md']: archive.write(ROOT / name, name)
     with tarfile.open(out / f'MinerDesk_{version}_linux-x64.tar.gz', 'w:gz') as archive:
-        for name in ['minerdesk','minerdesk-headless']:
+        for name in ['minerdesk','minerdesk-headless','minerdesk-linux-helper']:
             entry = archive.gettarinfo(str(linux / name), arcname=name)
             entry.mode = 0o755; entry.uid = entry.gid = 0; entry.uname = entry.gname = ''
             with (linux / name).open('rb') as file: archive.addfile(entry, file)
-        for name in ['LICENSE','BUILD-LINUX.md','SECURITY.md','docs/UPDATES.md','docs/QUANTUS.md']: archive.add(ROOT / name, arcname=name)
+        for name in ['LICENSE','BUILD-LINUX.md','SECURITY.md','docs/UPDATES.md','docs/QUANTUS.md','docs/LINUX-ELEVATION.md']: archive.add(ROOT / name, arcname=name)
     subprocess.run(['git','archive','--format=zip','-o',str(out / f'MinerDesk_{version}_source.zip'),head],cwd=ROOT,check=True)
     pubkey = json.loads((ROOT / 'src-tauri/tauri.conf.json').read_text())['plugins']['updater']['pubkey']
     for name in [installer, appimage, deb]:

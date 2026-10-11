@@ -7,10 +7,11 @@ test('shared and Linux configuration do not inherit Windows resources or install
   const linux = read('tauri.linux.conf.json');
   for (const config of [base, linux]) {
     assert.equal(config.bundle.windows, undefined);
-    assert.equal(config.bundle.resources, undefined);
     assert.ok(!JSON.stringify(config).includes('.exe'));
   }
   assert.deepEqual(linux.bundle.targets, ['deb', 'appimage']);
+  assert.equal(base.bundle.resources, undefined);
+  assert.deepEqual(linux.bundle.resources, ['resources/minerdesk-linux-helper']);
 });
 test('Windows overlay retains both executables and exact NSIS installation behavior', () => {
   const config = read('tauri.windows.conf.json');

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.33
+
+- Add optional per-profile Linux miner administrator mode, with system polkit approval. The application stays unprivileged and stores no administrator password.
+- Supervise root miner process groups through a private owner pipe: Stop, Restart and backend exit stop the miner and workers. Preserve live terminal output, arguments with spaces and miner exit codes.
+- Include the matching minimal elevation helper in Debian, AppImage and portable Linux packages. Show approval cancellation, missing-agent and timeout errors clearly.
+- Existing profiles stay unprivileged; Windows behavior is unchanged. Controlled root-process tests cover stop, parent exit, output, argument handling and cancellation.
+
 ## 0.7.32
 
 - Restore the Windows Update button for installed copies by accepting quoted NSIS InstallLocation values.

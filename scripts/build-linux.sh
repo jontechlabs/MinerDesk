@@ -10,6 +10,7 @@ node -e 'const fs=require("fs"); const p=require("./package.json"); const t=requ
 if [[ ! -d node_modules/typescript ]]; then npm ci --include=dev; fi
 npm test
 npm run build
+node scripts/prepare-linux-helper.mjs --release
 cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
 cargo build --locked --release --manifest-path src-tauri/Cargo.toml --bin minerdesk-headless
 # Set MINERDESK_BUNDLES=deb to build only Debian; default also produces AppImage.
@@ -22,7 +23,7 @@ destination="publish/linux-x64"
 mkdir -p "$destination"
 stage="$(mktemp -d publish/.linux-staging-XXXXXX)"
 trap 'rm -rf -- "$stage"' EXIT
-cp "$target/release/minerdesk" "$target/release/minerdesk-headless" "$stage/"
+cp "$target/release/minerdesk" "$target/release/minerdesk-headless" src-tauri/resources/minerdesk-linux-helper "$stage/"
 IFS=',' read -r -a formats <<< "$bundles"
 for format in "${formats[@]}"; do
   extension="$format"
