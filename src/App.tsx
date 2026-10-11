@@ -17,7 +17,7 @@ import type {
 
 type Tab = "dashboard" | "miners" | "schedules" | "console" | "settings";
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
-const DESKTOP_VERSION = "0.7.30";
+const DESKTOP_VERSION = "0.7.31";
 
 function resolveApiBase() {
   // Important: Tauri 2 uses an HTTP(S)-looking origin such as
@@ -72,7 +72,7 @@ function newMiner(): MinerProfile {
     id: uid("miner"), name: "New miner", engine: "srbminer", executable_path: "", enabled: true,
     algorithm: "", pool: "", wallet: "", secondary_wallet: "", merge_secondary: false,
     merge_separator: "+", password: "x", worker: "MinerDesk", gpu_ids: "", gpu_tuning: [],
-    core_clock: null, power_limit: null, fan: null, api_port: null, disable_cpu: true,
+    core_clock: null, memory_clock: null, core_offset: null, memory_offset: null, power_limit: null, fan: null, api_port: null, disable_cpu: true,
     extra_args: "", allow_gpu_overlap: false, dev_tip_percent: 0,
   };
 }
@@ -622,7 +622,7 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.30 · multi-miner</span></div></div>
+      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.31 · multi-miner</span></div></div>
       <nav>{(["dashboard","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot"/>{t(x)}</button>)}</nav>
       <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {t("activeMiners").toUpperCase()}</div><div className={`status-pill ${backendStatus?.reachable?"on":"off"}`}><span/>{backendStatus?.reachable?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>

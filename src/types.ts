@@ -3,6 +3,9 @@ export type GpuTuning = {
   /** Explicit edited values, including blanks, do not inherit legacy defaults. */
   ignore_defaults?: boolean;
   core_clock: number | null;
+  memory_clock: number | null;
+  core_offset: number | null;
+  memory_offset: number | null;
   power_limit: number | null;
   fan: number | null;
 };
@@ -25,6 +28,9 @@ export type MinerProfile = {
   gpu_tuning: GpuTuning[];
   /** Legacy/default values. Per-GPU values override these. */
   core_clock: number | null;
+  memory_clock: number | null;
+  core_offset: number | null;
+  memory_offset: number | null;
   power_limit: number | null;
   fan: number | null;
   api_port: number | null;

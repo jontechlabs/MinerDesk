@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.31
+
+- Add fixed GPU memory clocks and signed core/memory frequency offsets to per-GPU tuning and global defaults, with units and engine-specific controls.
+- Map the new settings to SRBMiner, lolMiner, BzMiner and Rigel; add NPMiner's CUDA memory-clock lock. Keep lpminer's documented shared core-clock control.
+- Use responsive GPU cards and explain fixed clocks, offsets, driver-supported memory states and engine limitations.
+- Extend explicit clearing and old-profile compatibility to all six fields without applying automatic overclock presets.
+- Reject incomplete SRBMiner/NPMiner tuning lists and invalid fan percentages with actionable messages.
+- Cover signed serialization, global/per-GPU arguments, selected device order, skip markers, clearing and process start/stop/restart.
+
 ## 0.7.30
 
 - Display effective per-GPU tuning values and keep saved global defaults visible.

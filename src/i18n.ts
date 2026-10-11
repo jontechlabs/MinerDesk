@@ -19,6 +19,12 @@ export type LangCode = typeof LANGUAGES[number][0];
 type Dict = Record<string, string>;
 
 const en: Dict = {
+  memoryClock: "GPU memory clock MHz", coreOffset: "Core offset MHz (+/−)", memoryOffset: "Memory offset MHz (+/−)",
+  gpuClockHelp: "Fixed clocks are absolute MHz. Offsets add or subtract MHz and may be negative; a fixed lock may take precedence over an offset. Only this engine's supported controls are shown. Clock tuning depends on your GPU, driver and permissions (typically NVIDIA). Use supported memory states; the reported memory clock may use a different scale from the clock-lock value.",
+  gpuTuningInvalid: "Invalid {field}: use whole numbers, non-negative fixed clocks/power and a fan percentage from 0 to 100. Offsets may be negative. Clear the field to omit it.",
+  gpuTuningCustom: "Use Advanced arguments for this executable's GPU tuning options. Previously saved tuning is preserved until you clear it or switch back to a supported engine.",
+  gpuLpShared: "lpminer supports one shared core-clock lock. All selected GPUs must use the same value. Other tuning options are not exposed by its documented interface.",
+  gpuLolMemory: "lolMiner documents its memory-clock lock mainly for KASPA/ALPH; availability depends on the card and algorithm. No memory-clock preset is applied automatically.",
   gpuDiagnostic_executable_required: "Choose the mining executable with Browse, or Download from GitHub, then refresh. NVIDIA's system inventory alone cannot verify this miner's GPU IDs.",
   gpuDiagnostic_executable_missing: "The configured executable is missing or points to a folder. Choose the actual mining executable for this operating system, then refresh.",
   gpuDiagnostic_launch_failed: "The miner could not be launched. On Linux, check execute permission, the filesystem's noexec setting and missing libraries. The exact error is in Manual IDs / diagnostics.",
@@ -61,7 +67,7 @@ const en: Dict = {
   gpuTuning: "GPU & tuning", gpuUse: "GPUs to use", gpuUseHelp: "MinerDesk automatically adapts GPU selection and tuning syntax to the selected miner.", refresh: "Refresh", detecting: "Detecting…",
   allGpus: "All GPUs", allGpusHelp: "Let the miner automatically use all compatible GPUs", noGpu: "No detailed GPU was detected. You can use manual IDs below.",
   manualIds: "Manual IDs / diagnostics", savedGpuIds: "Saved GPU IDs", source: "Source", perGpuTuning: "Per-GPU tuning", perGpuHelp: "Core clock, power limit and fan can be set independently for every selected GPU. Blank values are left unchanged.",
-  gpuTuningUnits: "GPU core clock uses MHz; power limit uses watts (W). These are not CPU clock or memory limits.",
+  gpuTuningUnits: "GPU core and memory clocks use MHz; offsets use signed MHz, power uses watts (W) and fan uses percent.",
   gpuTuningBlank: "The values shown are the effective settings, including old defaults. Clearing a GPU field leaves that setting unchanged by the miner.",
   clearGpuTuning: "Clear all GPU tuning",
   gpuDefaults: "Global / legacy GPU defaults",
@@ -88,7 +94,13 @@ const en: Dict = {
 };
 
 const fr: Dict = {
-  gpuTuningUnits: "La fréquence du cœur GPU est en MHz ; la limite de puissance est en watts (W). Ce ne sont ni la fréquence CPU ni une limite mémoire.",
+  memoryClock: "Fréquence mémoire GPU MHz", coreOffset: "Décalage cœur MHz (+/−)", memoryOffset: "Décalage mémoire MHz (+/−)",
+  gpuClockHelp: "Les fréquences fixes sont absolues, en MHz. Les décalages ajoutent ou retirent des MHz et acceptent les valeurs négatives ; un verrouillage peut avoir priorité sur un décalage. Seuls les réglages pris en charge par ce moteur sont affichés. Leur disponibilité dépend de la carte, du pilote et des droits (généralement NVIDIA). Utilisez un palier mémoire pris en charge ; la fréquence mémoire affichée peut avoir une échelle différente de celle du verrouillage.",
+  gpuTuningInvalid: "Valeur invalide pour {field} : utilisez des entiers, des fréquences fixes/puissances positives ou nulles et un ventilateur de 0 à 100 %. Les décalages peuvent être négatifs. Videz le champ pour omettre le réglage.",
+  gpuTuningCustom: "Utilisez les arguments avancés pour les réglages GPU de cet exécutable. Les valeurs déjà enregistrées sont conservées jusqu’à leur effacement ou au retour vers un moteur compatible.",
+  gpuLpShared: "lpminer accepte un seul verrouillage de fréquence du cœur partagé : tous les GPU sélectionnés doivent avoir la même valeur. Les autres réglages ne sont pas proposés par son interface documentée.",
+  gpuLolMemory: "lolMiner documente surtout le verrouillage mémoire pour KASPA/ALPH ; sa disponibilité dépend de la carte et de l’algorithme. Aucun préréglage mémoire n’est appliqué automatiquement.",
+  gpuTuningUnits: "Les fréquences GPU sont en MHz ; les décalages sont signés, la puissance en watts (W) et le ventilateur en pourcentage.",
   gpuTuningBlank: "Les valeurs affichées sont les réglages effectifs, anciens réglages inclus. Vider un champ GPU laisse ce réglage inchangé par le mineur.",
   clearGpuTuning: "Effacer tous les réglages GPU",
   gpuDefaults: "Réglages GPU globaux / anciens",

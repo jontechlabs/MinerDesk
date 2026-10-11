@@ -22,7 +22,7 @@ Keep your pool settings, GPU choices and schedules in one place instead of maint
 | Switch between mining engines or pools | Save separate profiles and launch them from the same interface. |
 | Mine during specific hours | Set weekly windows, including overnight sessions, with optional sleep or hibernate afterward. |
 | Keep an eye on a machine | Inspect hashrate, power, temperature, shares, uptime and logs from the desktop or a trusted browser connection. |
-| Use different GPU settings per profile | Select devices and translate supported clock, power and fan settings to each engine's command line. |
+| Use different GPU settings per profile | Select devices and translate supported core/memory clocks, signed offsets, power and fan settings to each engine's command line. |
 | Take manual control | Stop a scheduled session without it immediately restarting; explicitly Start to resume. |
 
 **MinerDesk is an orchestrator, not a mining engine, wallet or profitability service.** Mining is performed by separately downloaded third-party programs. Results depend on your hardware, driver, engine, pool and settings. No earnings or efficiency gains are promised.
@@ -33,15 +33,15 @@ Open [the latest release](https://github.com/jontechlabs/MinerDesk/releases/late
 
 | Platform | Asset | Use |
 | --- | --- | --- |
-| Windows 10/11 x64 | `MinerDesk_0.7.30_x64-setup.exe` | Recommended desktop installation, including both backends. |
-| Windows x64 | `MinerDesk_0.7.30_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
-| Debian-compatible Linux x64 | `MinerDesk_0.7.30_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.30_amd64.deb`. |
-| Linux x64 | `MinerDesk_0.7.30_amd64.AppImage` | Application image; make executable before launching. |
-| Linux x64 | `MinerDesk_0.7.30_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
+| Windows 10/11 x64 | `MinerDesk_0.7.31_x64-setup.exe` | Recommended desktop installation, including both backends. |
+| Windows x64 | `MinerDesk_0.7.31_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
+| Debian-compatible Linux x64 | `MinerDesk_0.7.31_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.31_amd64.deb`. |
+| Linux x64 | `MinerDesk_0.7.31_amd64.AppImage` | Application image; make executable before launching. |
+| Linux x64 | `MinerDesk_0.7.31_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
 
 Verify downloads against `SHA256SUMS.txt` in the release. Windows builds remain **unsigned with Authenticode**. Starting with 0.7.24, installer/AppImage/Debian updates have separate cryptographic signatures verified by the app. Linux compatibility and exact validation are recorded in the release notes. macOS and ARM packages are not provided.
 
-[Code signing policy](docs/CODE-SIGNING.md): a separate Windows signing workflow is prepared, pending provider acceptance and configuration. Current 0.7.30 downloads remain unsigned. See the [privacy policy](docs/PRIVACY.md) for local data and network activity.
+[Code signing policy](docs/CODE-SIGNING.md): a separate Windows signing workflow is prepared, pending provider acceptance and configuration. Current 0.7.31 downloads remain unsigned. See the [privacy policy](docs/PRIVACY.md) for local data and network activity.
 
 GPU detection in 0.7.25 preserves SRBMiner’s global IDs across AMD/OpenCL and NVIDIA/CUDA devices. Refresh after hardware changes and select by name/PCI address; system fallback indices are informational. [GPU selection guide](docs/GPU-SELECTION.md).
 
@@ -75,15 +75,17 @@ Metrics are parsed from miner output. Availability and interpretation depend on 
 
 | Engine | Download source | Device / tuning adapter |
 | --- | --- | --- |
-| SRBMiner-Multi | [doktor83/SRBMiner-Multi](https://github.com/doktor83/SRBMiner-Multi) | GPU selection, core clock, power and fan |
-| lolMiner | [Lolliedieb/lolMiner-releases](https://github.com/Lolliedieb/lolMiner-releases) | GPU selection, core clock, power and fan |
-| BzMiner | [bzminer/bzminer](https://github.com/bzminer/bzminer) | Device selectors, core clock, power and fan |
-| Rigel | [rigelminer/rigel](https://github.com/rigelminer/rigel) | GPU selection, core clock, power and fan |
+| SRBMiner-Multi | [doktor83/SRBMiner-Multi](https://github.com/doktor83/SRBMiner-Multi) | GPU selection, core/memory locks, signed offsets, power and fan |
+| lolMiner | [Lolliedieb/lolMiner-releases](https://github.com/Lolliedieb/lolMiner-releases) | GPU selection, core/memory locks, signed offsets, power and fan |
+| BzMiner | [bzminer/bzminer](https://github.com/bzminer/bzminer) | Device selectors, core/memory locks, signed offsets, power and fan |
+| Rigel | [rigelminer/rigel](https://github.com/rigelminer/rigel) | GPU selection, core/memory locks, signed offsets, power and fan |
 | lpminer / pearl-miner | [BaikalMine-Pools/pearl-miner](https://github.com/BaikalMine-Pools/pearl-miner) | Shared absolute core-clock lock |
-| NPMiner | [nushypool/npminer](https://github.com/nushypool/npminer) | GPU selection, CUDA core clock and power |
+| NPMiner | [nushypool/npminer](https://github.com/nushypool/npminer) | GPU selection, CUDA core/memory clocks and power |
 | Custom executable | Supplied by you | Your executable and extra arguments |
 
 Support here means an adapter exists; it does not guarantee every engine/version/GPU/OS combination. Device detection uses engine output and system fallbacks such as `nvidia-smi`. Unsupported controls are not invented: lpminer rejects conflicting per-GPU clocks, and NPMiner does not have a fan-control adapter. Legacy profile-wide tuning remains a fallback. Stop → edit → Start builds fresh arguments from the saved profile.
+
+Version 0.7.31 adds memory clocks and signed offsets in responsive GPU cards. Only mapped engine controls are shown; no tuning preset is applied. [GPU tuning and units](docs/GPU-TUNING.md).
 
 ## Scheduling that respects manual control
 
