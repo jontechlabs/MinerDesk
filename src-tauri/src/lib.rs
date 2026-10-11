@@ -39,6 +39,8 @@ mod schedule_control;
 mod app_updates;
 mod external_links;
 mod mining_diagnostics;
+#[cfg(test)]
+mod gpu_clock_tests;
 #[cfg(not(target_os = "windows"))]
 mod desktop_web;
 use app_updates::{check_app_update, install_app_update};
@@ -387,6 +389,9 @@ pub struct GpuTuning {
     /// Missing in older profiles: preserve their original inheritance behavior.
     pub ignore_defaults: bool,
     pub core_clock: Option<u32>,
+    pub memory_clock: Option<u32>,
+    pub core_offset: Option<i32>,
+    pub memory_offset: Option<i32>,
     pub power_limit: Option<u32>,
     pub fan: Option<u8>,
 }
@@ -411,6 +416,9 @@ pub struct MinerProfile {
     /// Per-GPU tuning. Legacy global values below remain as fallbacks for old profiles.
     pub gpu_tuning: Vec<GpuTuning>,
     pub core_clock: Option<u32>,
+    pub memory_clock: Option<u32>,
+    pub core_offset: Option<i32>,
+    pub memory_offset: Option<i32>,
     pub power_limit: Option<u32>,
     pub fan: Option<u8>,
     pub api_port: Option<u16>,
@@ -440,6 +448,9 @@ impl Default for MinerProfile {
             gpu_ids: String::new(),
             gpu_tuning: vec![],
             core_clock: None,
+            memory_clock: None,
+            core_offset: None,
+            memory_offset: None,
             power_limit: None,
             fan: None,
             api_port: None,
@@ -1275,6 +1286,27 @@ mod linux_mining_console_tests {
     }
 
     #[test]
+    fn memory_tuning_is_passed_to_the_process_and_rebuilt_after_clear() {
+        let dir=tempfile::tempdir().unwrap();
+        let state=fixture_state(dir.path(),"#!/bin/sh\nprintf '%s\\n' \"$@\"\nexec sleep 30\n");
+        {
+            let mut config=state.config.write().unwrap();let profile=&mut config.miners[0];
+            profile.gpu_ids="0".into();profile.memory_clock=Some(810);profile.core_offset=Some(-100);profile.memory_offset=Some(-200);
+        }
+        state.start_miner("fixture","manual").unwrap();
+        wait_until(||state.logs_for("fixture",100).iter().any(|l|l.stream=="stdout"&&l.text=="-200"));
+        let logs=state.logs_for("fixture",100);
+        for arg in ["--gpu-mclock0","810","--gpu-coffset0","-100","--gpu-moffset0","-200"] { assert!(logs.iter().any(|l|l.stream=="stdout"&&l.text==arg)); }
+        state.stop_miner_manually("fixture").unwrap();
+        state.config.write().unwrap().miners[0].gpu_tuning=vec![GpuTuning{selector:"0".into(),ignore_defaults:true,..Default::default()}];
+        state.start_miner("fixture","manual").unwrap();
+        let logs=state.logs_for("fixture",100);
+        let command=logs.iter().rev().find(|l|l.stream=="system"&&l.text.starts_with("[MinerDesk] [USER]")).unwrap();
+        assert!(!command.text.contains("--gpu-mclock0")&&!command.text.contains("--gpu-coffset0")&&!command.text.contains("--gpu-moffset0"));
+        state.stop_miner_manually("fixture").unwrap();
+    }
+
+    #[test]
     fn live_terminal_output_updates_metrics_and_stops_and_restarts_normally() {
         let dir = tempfile::tempdir().unwrap();
         let state = fixture_state(dir.path(), "#!/bin/sh\n[ -t 1 ] && [ -t 2 ] || exit 1\nprintf '\\033[32mTotal speed: 78 TH/s\\033[0m\\n'\nexec sleep 30\n");
@@ -1862,7 +1894,7 @@ mod gpu_discovery_tests {
         let mut profile = MinerProfile::default();
         profile.algorithm = "pearlhash".into(); profile.pool = "example.invalid:3360".into(); profile.wallet = "test-wallet".into();
         profile.gpu_ids = "1".into();
-        profile.gpu_tuning = vec![GpuTuning { ignore_defaults: false, selector: "1".into(), core_clock: Some(2200), power_limit: None, fan: None }];
+        profile.gpu_tuning = vec![GpuTuning { ignore_defaults: false, selector: "1".into(), core_clock: Some(2200), power_limit: None, fan: None, ..Default::default() }];
         let args = build_engine_args(&profile).unwrap();
         assert!(args.windows(2).any(|w| w == ["--gpu-id", "1"]));
         assert!(args.windows(2).any(|w| w == ["--gpu-cclock0", "2200"]));
@@ -1906,6 +1938,18 @@ fn effective_power_limit(p: &MinerProfile, selector: &str) -> Option<u32> {
     if let Some(g) = tuning_for(p, selector).filter(|g| g.ignore_defaults) { return g.power_limit; }
     tuning_for(p, selector).and_then(|g| g.power_limit).or(p.power_limit)
 }
+fn effective_memory_clock(p: &MinerProfile, selector: &str) -> Option<u32> {
+    if let Some(g) = tuning_for(p, selector).filter(|g| g.ignore_defaults) { return g.memory_clock; }
+    tuning_for(p, selector).and_then(|g| g.memory_clock).or(p.memory_clock)
+}
+fn effective_core_offset(p: &MinerProfile, selector: &str) -> Option<i32> {
+    if let Some(g) = tuning_for(p, selector).filter(|g| g.ignore_defaults) { return g.core_offset; }
+    tuning_for(p, selector).and_then(|g| g.core_offset).or(p.core_offset)
+}
+fn effective_memory_offset(p: &MinerProfile, selector: &str) -> Option<i32> {
+    if let Some(g) = tuning_for(p, selector).filter(|g| g.ignore_defaults) { return g.memory_offset; }
+    tuning_for(p, selector).and_then(|g| g.memory_offset).or(p.memory_offset)
+}
 fn effective_fan(p: &MinerProfile, selector: &str) -> Option<u8> {
     if let Some(g) = tuning_for(p, selector).filter(|g| g.ignore_defaults) { return g.fan; }
     tuning_for(p, selector).and_then(|g| g.fan).or(p.fan)
@@ -1934,8 +1978,8 @@ fn lpminer_shared_core_clock(p: &MinerProfile, selected: &[String]) -> Result<Op
 
 /// Build a comma-separated per-GPU option for SRBMiner. SRBMiner maps the value
 /// list to the explicit --gpu-id list, so every selected GPU must have a value.
-fn srb_numeric_list<F>(p: &MinerProfile, selected: &[String], get: F) -> Option<String>
-where F: Fn(&MinerProfile, &str) -> Option<u32> {
+fn srb_numeric_list<F,T: std::fmt::Display>(p: &MinerProfile, selected: &[String], get: F) -> Option<String>
+where F: Fn(&MinerProfile, &str) -> Option<T> {
     if selected.is_empty() { return None; }
     let vals: Option<Vec<String>> = selected.iter().map(|id| get(p, id).map(|v| v.to_string())).collect();
     vals.map(|v| v.join(","))
@@ -1948,8 +1992,8 @@ fn srb_fan_list(p: &MinerProfile, selected: &[String]) -> Option<String> {
 
 /// lolMiner and Rigel index OC arrays by physical numeric GPU index. They both
 /// support a skip marker, allowing MinerDesk to tune only the selected cards.
-fn indexed_list_u32<F>(p: &MinerProfile, selected: &[String], skip: &str, get: F) -> Option<String>
-where F: Fn(&MinerProfile, &str) -> Option<u32> {
+fn indexed_numeric_list<F,T: std::fmt::Display>(p: &MinerProfile, selected: &[String], skip: &str, get: F) -> Option<String>
+where F: Fn(&MinerProfile, &str) -> Option<T> {
     let numeric: Vec<usize> = selected.iter().filter_map(|s| s.parse::<usize>().ok()).collect();
     let max = *numeric.iter().max()?;
     let selected_set: HashSet<usize> = numeric.into_iter().collect();
@@ -2253,8 +2297,50 @@ fn start_dev_tip_monitor(state: Arc<CoreState>) {
 #[cfg(test)]
 fn build_engine_args(p: &MinerProfile) -> Result<Vec<String>, String> { build_engine_args_with_language(p,false) }
 
+/// Memory locks and signed offsets use each engine's documented list convention.
+/// Missing fields in old profiles stay unset; never supply an automatic OC preset.
+fn append_extended_gpu_tuning(p: &MinerProfile, selected: &[String], args: &mut Vec<String>) {
+    type Getter = fn(&MinerProfile,&str)->Option<i64>;
+    let fields: [(&str,Option<i64>,Getter);3] = [
+        ("memory_clock",p.memory_clock.map(i64::from),|p,id|effective_memory_clock(p,id).map(i64::from)),
+        ("core_offset",p.core_offset.map(i64::from),|p,id|effective_core_offset(p,id).map(i64::from)),
+        ("memory_offset",p.memory_offset.map(i64::from),|p,id|effective_memory_offset(p,id).map(i64::from)),
+    ];
+    for (field,global,get) in fields {
+        let flag = match (p.engine.as_str(),field) {
+            ("srbminer","memory_clock")=>"--gpu-mclock0", ("srbminer","core_offset")=>"--gpu-coffset0", ("srbminer","memory_offset")=>"--gpu-moffset0",
+            ("lolminer","memory_clock")=>"--mclk", ("lolminer","core_offset")=>"--coff", ("lolminer","memory_offset")=>"--moff",
+            ("rigel","memory_clock")=>"--lock-mclock", ("rigel","core_offset")=>"--cclock", ("rigel","memory_offset")=>"--mclock",
+            ("bzminer","memory_clock")=>"--oc_lock_memory_clock", ("bzminer","core_offset")=>"--oc_core_clock_offset", ("bzminer","memory_offset")=>"--oc_memory_clock_offset",
+            ("npminer","memory_clock")=>"--cuda-lock-mem-clocks",
+            _=>continue,
+        };
+        if selected.is_empty() {
+            if let Some(value)=global { args.extend([flag.into(),value.to_string()]); }
+        } else if p.engine == "bzminer" {
+            // BzMiner 1.x's space-separated lists document 0 as no change.
+            let values:Vec<_>=selected.iter().map(|id|get(p,id).unwrap_or(0).to_string()).collect();
+            if values.iter().any(|v|v!="0") { args.push(flag.into()); args.extend(values); }
+        } else {
+            let values = match p.engine.as_str() {
+                "lolminer"=>indexed_numeric_list(p,selected,"*",get),
+                "rigel"=>indexed_numeric_list(p,selected,"_",get),
+                _=>srb_numeric_list(p,selected,get),
+            };
+            if let Some(values)=values { args.extend([flag.into(),values]); }
+        }
+    }
+}
+
 fn build_engine_args_with_language(p: &MinerProfile, french: bool) -> Result<Vec<String>, String> {
-    if p.engine == "srbminer" { mining_diagnostics::validate_srb_selection(p,french)?; }
+    if p.engine == "srbminer" || p.engine == "npminer" { mining_diagnostics::validate_gpu_selection(p,french)?; }
+    if ["srbminer","lolminer","bzminer","rigel"].contains(&p.engine.as_str()) {
+        let selected=gpu_tokens(&p.gpu_ids);
+        let fans=if selected.is_empty() { vec![p.fan] } else { selected.iter().map(|id|effective_fan(p,id)).collect() };
+        if fans.into_iter().flatten().any(|v|v>100) {
+            return Err(if french { "Ventilateur GPU : utilisez un entier de 0 à 100 %, ou videz le champ." } else { "GPU fan: use an integer from 0 to 100%, or clear the field." }.into());
+        }
+    }
     let algo = p.algorithm.trim();
     let pool = p.pool.trim();
     let wallet = if p.merge_secondary && !p.secondary_wallet.trim().is_empty() {
@@ -2291,8 +2377,8 @@ fn build_engine_args_with_language(p: &MinerProfile, french: bool) -> Result<Vec
             if !p.worker.trim().is_empty() { a.extend(["--worker".into(), p.worker.trim().into()]); }
             if !selected_gpus.is_empty() { a.extend(["--devices".into(), selected_gpus_csv.clone()]); }
             if !selected_gpus.is_empty() {
-                if let Some(v) = indexed_list_u32(p, &selected_gpus, "*", effective_core_clock) { a.extend(["--cclk".into(), v]); }
-                if let Some(v) = indexed_list_u32(p, &selected_gpus, "*", effective_power_limit) { a.extend(["--pl".into(), v]); }
+                if let Some(v) = indexed_numeric_list(p, &selected_gpus, "*", effective_core_clock) { a.extend(["--cclk".into(), v]); }
+                if let Some(v) = indexed_numeric_list(p, &selected_gpus, "*", effective_power_limit) { a.extend(["--pl".into(), v]); }
                 if let Some(v) = indexed_list_fan(p, &selected_gpus, "*") { a.extend(["--fan".into(), v]); }
             } else {
                 if let Some(v) = p.core_clock { a.extend(["--cclk".into(), v.to_string()]); }
@@ -2334,8 +2420,8 @@ fn build_engine_args_with_language(p: &MinerProfile, french: bool) -> Result<Vec
             if !p.worker.trim().is_empty() { a.extend(["-w".into(), p.worker.trim().into()]); }
             if !selected_gpus.is_empty() { a.extend(["-d".into(), selected_gpus_csv.clone()]); }
             if !selected_gpus.is_empty() {
-                if let Some(v) = indexed_list_u32(p, &selected_gpus, "_", effective_core_clock) { a.extend(["--lock-cclock".into(), v]); }
-                if let Some(v) = indexed_list_u32(p, &selected_gpus, "_", effective_power_limit) { a.extend(["--pl".into(), v]); }
+                if let Some(v) = indexed_numeric_list(p, &selected_gpus, "_", effective_core_clock) { a.extend(["--lock-cclock".into(), v]); }
+                if let Some(v) = indexed_numeric_list(p, &selected_gpus, "_", effective_power_limit) { a.extend(["--pl".into(), v]); }
                 if let Some(v) = indexed_list_fan(p, &selected_gpus, "_") { a.extend(["--fan-control".into(), v]); }
             } else {
                 if let Some(v) = p.core_clock { a.extend(["--lock-cclock".into(), v.to_string()]); }
@@ -2393,6 +2479,7 @@ fn build_engine_args_with_language(p: &MinerProfile, french: bool) -> Result<Vec
         "custom" => vec![],
         x => return Err(format!("Unknown miner engine: {x}")),
     };
+    append_extended_gpu_tuning(p,&selected_gpus,&mut args);
     args.extend(extra()?);
     if p.engine == "srbminer" { mining_diagnostics::validate_srb_power(&args, french)?; }
     Ok(args)
@@ -2437,8 +2524,7 @@ mod regression_tests_079 {
             selector: "0".into(),
             core_clock: Some(2450),
             power_limit: None,
-            fan: None,
-        }];
+            fan: None, ..Default::default() }];
 
         let args = build_engine_args(&p).expect("lpminer args");
         let pos = args.iter().position(|a| a == "--lock-core-clock").expect("core clock flag");
@@ -2455,8 +2541,8 @@ mod regression_tests_079 {
         p.wallet = "prl-test".into();
         p.gpu_ids = "0,1".into();
         p.gpu_tuning = vec![
-            GpuTuning { ignore_defaults: false, selector: "0".into(), core_clock: Some(2300), power_limit: None, fan: None },
-            GpuTuning { ignore_defaults: false, selector: "1".into(), core_clock: Some(2450), power_limit: None, fan: None },
+            GpuTuning { ignore_defaults: false, selector: "0".into(), core_clock: Some(2300), power_limit: None, fan: None, ..Default::default() },
+            GpuTuning { ignore_defaults: false, selector: "1".into(), core_clock: Some(2450), power_limit: None, fan: None, ..Default::default() },
         ];
 
         let err = build_engine_args(&p).expect_err("different lpminer core clocks must be explicit");
@@ -2561,7 +2647,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.30")
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.31")
         .connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(120))
         .build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
@@ -2835,7 +2921,7 @@ mod local_request_tests {
 async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; }
     Json(Health {
-        version: "0.7.30",
+        version: "0.7.31",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -4192,7 +4278,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.30", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.31", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -4231,7 +4317,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.30 starting ({})",
+        "{} 0.7.31 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -4262,7 +4348,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.30");
+        println!("MinerDesk Headless 0.7.31");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");

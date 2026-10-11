@@ -1,12 +1,25 @@
 use super::LogLine;
 
-pub fn validate_srb_selection(profile: &super::MinerProfile, french: bool) -> Result<(),String> {
+pub fn validate_gpu_selection(profile: &super::MinerProfile, french: bool) -> Result<(),String> {
     let selected=super::gpu_tokens(&profile.gpu_ids);
     if selected.is_empty() { return Ok(()); }
-    let getters: [(&str, fn(&super::MinerProfile,&str)->Option<u32>);3] = [
-        ("--gpu-plimit0",super::effective_power_limit), ("--gpu-cclock0",super::effective_core_clock),
-        ("--gpu-fan0",|p,id|super::effective_fan(p,id).map(u32::from)),
-    ];
+    type Getter = fn(&super::MinerProfile,&str)->Option<i64>;
+    let (engine,getters): (&str,Vec<(&str,Getter)>) = if profile.engine == "npminer" {
+        ("NPMiner",vec![
+            ("--cuda-lock-core-clocks",|p,id|super::effective_core_clock(p,id).map(i64::from)),
+            ("--cuda-lock-mem-clocks",|p,id|super::effective_memory_clock(p,id).map(i64::from)),
+            ("--cuda-power-limits",|p,id|super::effective_power_limit(p,id).map(i64::from)),
+        ])
+    } else {
+        ("SRBMiner",vec![
+            ("--gpu-plimit0",|p,id|super::effective_power_limit(p,id).map(i64::from)),
+            ("--gpu-cclock0",|p,id|super::effective_core_clock(p,id).map(i64::from)),
+            ("--gpu-mclock0",|p,id|super::effective_memory_clock(p,id).map(i64::from)),
+            ("--gpu-coffset0",|p,id|super::effective_core_offset(p,id).map(i64::from)),
+            ("--gpu-moffset0",|p,id|super::effective_memory_offset(p,id).map(i64::from)),
+            ("--gpu-fan0",|p,id|super::effective_fan(p,id).map(i64::from)),
+        ])
+    };
     for (flag,get) in getters {
         let values:Vec<_>=selected.iter().map(|id|get(profile,id)).collect();
         if flag=="--gpu-plimit0" {
@@ -14,9 +27,9 @@ pub fn validate_srb_selection(profile: &super::MinerProfile, french: bool) -> Re
         }
         if values.iter().any(Option::is_some) && values.iter().any(Option::is_none) {
             return Err(if french {
-                format!("SRBMiner : réglages partiels pour {flag}. Il faut une valeur par GPU sélectionné, dans le même ordre. Effacez tous les réglages pour ne pas envoyer cette option, ou utilisez des profils séparés pour régler seulement certaines cartes.")
+                format!("{engine} : réglages partiels pour {flag}. Il faut une valeur par GPU sélectionné, dans le même ordre. Effacez tous les réglages pour ne pas envoyer cette option, ou utilisez des profils séparés pour régler seulement certaines cartes.")
             } else {
-                format!("SRBMiner: partial GPU tuning for {flag}. A value is required for every selected GPU, in selection order. Clear all tuning to omit this option, or use separate profiles to tune only some cards.")
+                format!("{engine}: partial GPU tuning for {flag}. A value is required for every selected GPU, in selection order. Clear all tuning to omit this option, or use separate profiles to tune only some cards.")
             });
         }
     }
@@ -87,7 +100,7 @@ mod tests {
         let old:GpuTuning=serde_json::from_str(r#"{"selector":"0","core_clock":2200,"power_limit":null}"#).unwrap();
         assert!(!old.ignore_defaults); profile.gpu_tuning=vec![old];
         assert!(build_engine_args(&profile).is_err());
-        profile.gpu_tuning=vec![GpuTuning{selector:"0".into(),ignore_defaults:true,core_clock:Some(2100),power_limit:None,fan:Some(60)}];
+        profile.gpu_tuning=vec![GpuTuning{selector:"0".into(),ignore_defaults:true,core_clock:Some(2100),power_limit:None,fan:Some(60),..Default::default()}];
         profile=serde_json::from_str(&serde_json::to_string(&profile).unwrap()).unwrap();
         let args=build_engine_args(&profile).unwrap();
         assert!(!args.iter().any(|arg|arg.starts_with("--gpu-plimit")));
@@ -101,10 +114,10 @@ mod tests {
         let mut profile=MinerProfile::default();profile.gpu_ids="0,1".into();
         profile.power_limit=Some(180);
         profile.gpu_tuning=vec![GpuTuning{selector:"0".into(),ignore_defaults:true,..Default::default()}];
-        assert!(validate_srb_selection(&profile,false).unwrap_err().contains("partial GPU tuning"));
+        assert!(validate_gpu_selection(&profile,false).unwrap_err().contains("partial GPU tuning"));
         profile.power_limit=Some(2100);
-        assert!(validate_srb_selection(&profile,false).unwrap_err().contains("invalid power limit"));
-        profile.power_limit=None;assert!(validate_srb_selection(&profile,false).is_ok());
+        assert!(validate_gpu_selection(&profile,false).unwrap_err().contains("invalid power limit"));
+        profile.power_limit=None;assert!(validate_gpu_selection(&profile,false).is_ok());
     }
     #[test] fn power_validation_checks_lists_aliases_and_advanced_arguments() {
         for flag in ["--gpu-plimit", "--gpu-plimit0", "--gpu-plimit1"] {
