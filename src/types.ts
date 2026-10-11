@@ -99,6 +99,7 @@ export type MinerStatus = {
   runtime: MinerRuntime;
   scheduled_now: boolean;
   scheduler_paused?: boolean;
+  has_schedule?: boolean;
 };
 
 export type EngineSpec = {

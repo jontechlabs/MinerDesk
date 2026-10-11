@@ -33,15 +33,15 @@ Open [the latest release](https://github.com/jontechlabs/MinerDesk/releases/late
 
 | Platform | Asset | Use |
 | --- | --- | --- |
-| Windows 10/11 x64 | `MinerDesk_0.7.34_x64-setup.exe` | Recommended desktop installation, including both backends. |
-| Windows x64 | `MinerDesk_0.7.34_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
-| Debian-compatible Linux x64 | `MinerDesk_0.7.34_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.34_amd64.deb`. |
-| Linux x64 | `MinerDesk_0.7.34_amd64.AppImage` | Application image; make executable before launching. |
-| Linux x64 | `MinerDesk_0.7.34_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
+| Windows 10/11 x64 | `MinerDesk_0.7.35_x64-setup.exe` | Recommended desktop installation, including both backends. |
+| Windows x64 | `MinerDesk_0.7.35_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
+| Debian-compatible Linux x64 | `MinerDesk_0.7.35_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.35_amd64.deb`. |
+| Linux x64 | `MinerDesk_0.7.35_amd64.AppImage` | Application image; make executable before launching. |
+| Linux x64 | `MinerDesk_0.7.35_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
 
 Verify downloads against `SHA256SUMS.txt` in the release. Windows builds remain **unsigned with Authenticode**. Starting with 0.7.24, installer/AppImage/Debian updates have separate cryptographic signatures verified by the app. Linux compatibility and exact validation are recorded in the release notes. macOS and ARM packages are not provided.
 
-[Code signing policy](docs/CODE-SIGNING.md): a separate Windows signing workflow is prepared, pending provider acceptance and configuration. Current 0.7.34 downloads remain unsigned. See the [privacy policy](docs/PRIVACY.md) for local data and network activity.
+[Code signing policy](docs/CODE-SIGNING.md): a separate Windows signing workflow is prepared, pending provider acceptance and configuration. Current 0.7.35 downloads remain unsigned. See the [privacy policy](docs/PRIVACY.md) for local data and network activity.
 
 GPU detection in 0.7.25 preserves SRBMiner’s global IDs across AMD/OpenCL and NVIDIA/CUDA devices. Refresh after hardware changes and select by name/PCI address; system fallback indices are informational. [GPU selection guide](docs/GPU-SELECTION.md).
 
@@ -95,10 +95,13 @@ The scheduler runs in Rust. Closing a browser tab does not stop scheduling while
 
 - **Stop** holds the profile for its current dated schedule occurrence, including overnight and overlapping windows.
 - **Stop all** also holds eligible stopped/failed profiles so they cannot immediately retry.
-- A successful manual **Start / Restart** clears the relevant hold and starts a user-owned session. The scheduler does not stop that manual session when a window ends.
+- **Start / Restart / Start all** respect enabled schedules assigned to each profile. Inside a window they resume scheduled mining; outside all windows they wait for the next one. A successful command clears that profile's current hold.
+- **Force mining** explicitly runs without a time limit, even outside the schedule. **Resume schedule** returns it to its windows; outside a window, it stops the forced session and waits. Profiles without an enabled assigned schedule start immediately.
 - The next occurrence can run normally. Holds are persisted beside the configuration.
 - Sleep/hibernate is blocked by another active window or a manual mining session. When UI confirmation is required, an open confirmation UI is required; cancellation aborts the action.
 - Windows wake timers depend on hardware and power-plan support. Linux sleep/hibernate uses `systemctl` where supported; automatic wake-task creation is Windows-specific.
+
+See [schedule controls and examples](docs/SCHEDULING.md). Version **0.7.35** makes schedule-aware starts the default and labels forced sessions clearly.
 
 Screenshots were captured from the author's running **0.7.21 web interface**; 0.7.24 retains that interface. Values show one real session, not a benchmark.
 

@@ -62,6 +62,15 @@ pub fn scheduler_should_stop_session(running: bool, started_by: &str, scheduled_
     running && started_by == "schedule" && !scheduled_now
 }
 
+/// Ordinary Start/Restart respects assigned enabled windows. Outside a window
+/// it resumes automatic scheduling without launching a process. Only an explicit
+/// force command (or a profile without a schedule) creates an unlimited session.
+pub fn user_start_origin(has_schedule: bool, scheduled_now: bool, force: bool) -> Option<&'static str> {
+    if force || !has_schedule { Some("manual") }
+    else if scheduled_now { Some("schedule") }
+    else { None }
+}
+
 pub fn active_miners<'a>(windows: impl IntoIterator<Item = Window<'a>>, now: LocalMoment) -> ActiveOccurrences {
     let mut active = ActiveOccurrences::new();
     for window in windows {
@@ -249,6 +258,32 @@ mod tests {
     #[test]
     fn manual_session_survives_schedule_end() {
         assert!(!scheduler_should_stop_session(true, "manual", false));
+    }
+
+    #[test]
+    fn ordinary_start_inside_window_is_owned_by_scheduler() {
+        let origin = user_start_origin(true, true, false).unwrap();
+        assert_eq!(origin, "schedule");
+        assert!(scheduler_should_stop_session(true, origin, false));
+    }
+
+    #[test]
+    fn ordinary_start_outside_window_waits_without_launching() {
+        assert_eq!(user_start_origin(true, false, false), None);
+    }
+
+    #[test]
+    fn force_is_explicit_and_survives_window_end() {
+        for active in [true, false] {
+            let origin = user_start_origin(true, active, true).unwrap();
+            assert_eq!(origin, "manual");
+            assert!(!scheduler_should_stop_session(true, origin, false));
+        }
+    }
+
+    #[test]
+    fn unscheduled_profile_starts_immediately() {
+        assert_eq!(user_start_origin(false, false, false), Some("manual"));
     }
 
     #[test]

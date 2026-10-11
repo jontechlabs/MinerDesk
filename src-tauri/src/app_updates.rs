@@ -97,12 +97,28 @@ fn windows_install_target(exe: &std::path::Path, location: Option<&str>) -> Resu
     if same { Ok("windows-x86_64") } else { Err("portable") }
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn windows_registered_install_target(exe: &std::path::Path, registrations: &[Result<Option<String>, &'static str>]) -> Result<&'static str, &'static str> {
+    let mut reason = "portable";
+    for registration in registrations {
+        match registration {
+            Ok(location) => match windows_install_target(exe, location.as_deref()) {
+                Ok(target) => return Ok(target),
+                Err("installation") => reason = "installation",
+                Err(_) => {},
+            },
+            Err(_) => reason = "installation",
+        }
+    }
+    Err(reason)
+}
+
 #[cfg(target_os = "windows")]
-fn read_windows_install_location(root: &winreg::RegKey, key: &str) -> Result<Option<String>, &'static str> {
-    use winreg::enums::{KEY_READ, KEY_WOW64_64KEY};
-    // The x64 per-machine NSIS installer writes the 64-bit HKLM view.
+fn read_windows_install_location(root: &winreg::RegKey, key: &str, view: u32) -> Result<Option<String>, &'static str> {
+    use winreg::enums::KEY_READ;
+    // Installed x64 NSIS copies may be registered in either HKLM registry view.
     // Reading directly avoids PowerShell startup, encoding and policy failures.
-    let key = match root.open_subkey_with_flags(key, KEY_READ | KEY_WOW64_64KEY) {
+    let key = match root.open_subkey_with_flags(key, KEY_READ | view) {
         Ok(key) => key,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("installation"),
@@ -117,9 +133,13 @@ fn install_target(app: &tauri::AppHandle) -> Result<&'static str, &'static str> 
     {
         // A portable executable must not accidentally update a different install.
         let root = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
-        let location = read_windows_install_location(&root, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MinerDesk")?;
+        let key = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MinerDesk";
+        let registrations = [
+            read_windows_install_location(&root, key, winreg::enums::KEY_WOW64_64KEY),
+            read_windows_install_location(&root, key, winreg::enums::KEY_WOW64_32KEY),
+        ];
         let exe = std::env::current_exe().map_err(|_| "installation")?;
-        return windows_install_target(&exe, location.as_deref());
+        return windows_registered_install_target(&exe, &registrations);
     }
     #[cfg(target_os = "linux")]
     {
@@ -312,17 +332,35 @@ mod tests {
         }
         let fixture = Fixture(format!(r"Software\MinerDeskUpdateTest-{}", uuid::Uuid::new_v4()));
         let root = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
-        assert_eq!(read_windows_install_location(&root, &fixture.0), Ok(None));
+        let view = winreg::enums::KEY_WOW64_64KEY;
+        assert_eq!(read_windows_install_location(&root, &fixture.0, view), Ok(None));
         let (key, _) = root.create_subkey(&fixture.0).unwrap();
-        assert_eq!(read_windows_install_location(&root, &fixture.0), Err("installation"));
+        assert_eq!(read_windows_install_location(&root, &fixture.0, view), Err("installation"));
         let temp = tempfile::tempdir().unwrap();
         let location = format!("\"{}\"", temp.path().display());
         key.set_value("InstallLocation", &location).unwrap();
-        let read = read_windows_install_location(&root, &fixture.0).unwrap();
+        let read = read_windows_install_location(&root, &fixture.0, view).unwrap();
         assert_eq!(read.as_deref(), Some(location.as_str()));
         assert_eq!(windows_install_target(&temp.path().join("MinerDesk.exe"), read.as_deref()), Ok("windows-x86_64"));
         key.set_value("InstallLocation", &123u32).unwrap();
-        assert_eq!(read_windows_install_location(&root, &fixture.0), Err("installation"));
+        assert_eq!(read_windows_install_location(&root, &fixture.0, view), Err("installation"));
+    }
+
+    #[test] fn installed_copy_registered_only_in_32_bit_view_can_update() {
+        let temp = tempfile::tempdir().unwrap(); let exe = temp.path().join("minerdesk.exe");
+        let location = Some(format!("\"{}\"", temp.path().display()));
+        assert_eq!(windows_registered_install_target(&exe, &[Ok(None), Ok(location.clone())]), Ok("windows-x86_64"));
+        assert_eq!(windows_registered_install_target(&exe, &[Ok(location), Ok(None)]), Ok("windows-x86_64"));
+    }
+
+    #[test] fn either_registry_view_must_match_the_executable_being_updated() {
+        let temp = tempfile::tempdir().unwrap(); let installed = temp.path().join("installed"); let portable = temp.path().join("portable");
+        std::fs::create_dir(&installed).unwrap(); std::fs::create_dir(&portable).unwrap();
+        let registered = Ok(Some(installed.to_string_lossy().into_owned()));
+        assert_eq!(windows_registered_install_target(&portable.join("minerdesk.exe"), &[Ok(None), registered.clone()]), Err("portable"));
+        assert_eq!(windows_registered_install_target(&installed.join("minerdesk.exe"), &[Err("installation"), registered]), Ok("windows-x86_64"));
+        assert_eq!(windows_registered_install_target(&installed.join("minerdesk.exe"), &[Ok(None), Ok(None)]), Err("portable"));
+        assert_eq!(windows_registered_install_target(&installed.join("minerdesk.exe"), &[Ok(None), Ok(Some("\"unclosed".into()))]), Err("installation"));
     }
     #[cfg(target_os = "linux")]
     fn installer_output(code: i32, stderr: &str) -> std::process::Output {

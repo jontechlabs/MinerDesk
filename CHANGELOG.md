@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.35
+
+- Make Start, Restart and Start all respect each profile's enabled assigned schedules: resume during an active window, otherwise wait for the next one. Clear a manual pause only after a successful command.
+- Add explicit Force mining and Resume schedule controls, with English/French badges and waiting feedback. Forced sessions have no time limit; unscheduled profiles still start immediately.
+- Preserve dated Stop holds, overnight/overlapping windows, and end-of-window sleep/hibernate confirmation. Test actual fake-miner start/stop/restart at deterministic schedule boundaries.
+- Restore Windows in-app update eligibility for installed copies registered under HKLM's 32-bit WOW6432Node view. Check both registry views while requiring the registered directory to match the running executable; portable copies cannot update another installation.
+- Rebuild Windows and Linux packages from the same revision, with verified application-update signatures.
+
 ## 0.7.34
 
 - Show the exact GPU-discovery launch error directly, with backend-platform guidance instead of Linux advice on Windows.

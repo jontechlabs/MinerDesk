@@ -1,11 +1,12 @@
 /** The same command pipeline is used by profile buttons and Start/Stop all.
  * Kept independent of React so the actual production path can be regression-tested.
  */
-export type MiningAction = "start" | "stop" | "restart" | "start-all" | "stop-all";
+export type MiningAction = "start" | "force-start" | "stop" | "restart" | "start-all" | "stop-all";
 export type CommandStage = "saving" | "sending";
 export type CommandRequest = <T>(path: string, options?: RequestInit, token?: string, timeoutMs?: number) => Promise<T>;
-export interface BulkStartResult { id: string; result: string | null; }
-export interface CommandOutcome { startedCount?: number; }
+export type StartMode = "manual" | "schedule" | "waiting";
+export interface BulkStartResult { id: string; result: string | null; mode?: StartMode | null; }
+export interface CommandOutcome { startedCount?: number; waitingCount?: number; mode?: StartMode; }
 
 export class BulkStartError extends Error {
   constructor(readonly failures: BulkStartResult[], readonly startedCount: number) {
@@ -25,16 +26,16 @@ export async function runMiningCommand(options: {
   elevatedStarts?: number;
 }): Promise<CommandOutcome> {
   const { action, id, dirty, save, request, token, onStage } = options;
-  const individual = action === "start" || action === "stop" || action === "restart";
+  const individual = action === "start" || action === "force-start" || action === "stop" || action === "restart";
   if (individual && !id) throw new Error("Missing mining profile ID");
   // A clean profile goes directly to Start. Stop NEVER depends on a config save.
   // Unsaved tuning is still saved first; a failed save must not launch stale settings.
-  if (dirty && (action === "start" || action === "restart" || action === "start-all")) {
+  if (dirty && (action === "start" || action === "force-start" || action === "restart" || action === "start-all")) {
     onStage?.("saving");
     await save();
   }
   onStage?.("sending");
-  const starts = action === "start" || action === "restart" || action === "start-all";
+  const starts = action === "start" || action === "force-start" || action === "restart" || action === "start-all";
   const count = Math.max(0, Math.floor(options.elevatedStarts || 0));
   const timeout = starts ? 30000 + 130000 * count : 30000;
   const path = individual ? `/api/miners/${encodeURIComponent(id!)}/${action}` : `/api/miners/${action}`;
@@ -45,12 +46,13 @@ export async function runMiningCommand(options: {
       throw new Error("Invalid per-profile result in Start all API response");
     }
     const failures = results.filter(item => item.result !== null);
-    const startedCount = results.length - failures.length;
+    const waitingCount = results.filter(item => item.result === null && item.mode === "waiting").length;
+    const startedCount = results.length - failures.length - waitingCount;
     // HTTP 200 is NOT proof that every mining profile started.
     if (failures.length) throw new BulkStartError(failures, startedCount);
-    return { startedCount };
+    return { startedCount, waitingCount };
   }
-  const result = await request<{ ok: boolean }>(path, { method: "POST" }, token, timeout);
+  const result = await request<{ ok: boolean; mode?: StartMode }>(path, { method: "POST" }, token, timeout);
   if (result?.ok !== true) throw new Error(`MinerDesk did not acknowledge ${action}`);
-  return {};
+  return result.mode ? { mode: result.mode } : {};
 }

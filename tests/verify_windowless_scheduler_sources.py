@@ -59,11 +59,11 @@ for route, action in (('api_stop(', 'stop'), ('api_restart(', 'restart')):
     check(f'miner_command_response(s.core, id, "{action}").await' in part,
           'Manual API uses shared command adapter: ' + action)
 adapter = lib.split('async fn miner_command_response(', 1)[1].split('\nasync fn ', 1)[0]
-check('core.stop_miner_manually(&id)' in adapter and 'core.restart_miner_manually(&id)' in adapter,
+check('core.stop_miner_manually(&id)' in adapter and 'core.start_miner_respecting_schedule(&id, true)' in adapter,
       'Adapter preserves manual schedule-hold policy')
 part = lib.split('async fn api_stop_all(', 1)[1].split('\nasync fn ', 1)[0]
 check('stop_all_manually()' in part, 'Stop all preserves manual schedule-hold policy')
-scheduler = lib.split('fn start_scheduler(', 1)[1].split('// ---------- Web API', 1)[0]
+scheduler = lib.split('fn start_scheduler(', 1)[1].split('// ---------- Web API', 1)[0] + lib.split('fn scheduler_tick_locked(', 1)[1].split('fn statuses(', 1)[0]
 check('state.lifecycle.lock()' in scheduler and '!control.is_paused(id, &occurrences)' in scheduler,
       'Scheduler serializes lifecycle and honors manual holds before start')
 check('self.shutting_down.store(true, Ordering::SeqCst)' in lib and
@@ -71,7 +71,7 @@ check('self.shutting_down.store(true, Ordering::SeqCst)' in lib and
       'Shutdown gate prevents new starts')
 check(policy.count('#[test]') >= 15,
       'At least 15 production-policy test cases present (not executed by this checker)')
-check('scheduler_paused' in read('src/App.tsx') and 'schedulerPausedHelp' in read('src/i18n.ts'),
+check('scheduler_paused' in read('src/MinerScheduleControls.tsx') and 'schedulerPausedHelp' in read('src/i18n.ts'),
       'Pause state exposed by UI with localized help')
 if args.baseline:
     old = (args.baseline / 'src-tauri/src/lib.rs').read_text()
