@@ -39,6 +39,8 @@ mod schedule_control;
 mod app_updates;
 mod external_links;
 mod mining_diagnostics;
+mod gpu_diagnostic_error;
+use gpu_diagnostic_error::GpuDiagnosticError;
 #[cfg(target_os = "linux")]
 mod linux_terminal;
 #[cfg(target_os = "linux")]
@@ -1442,6 +1444,9 @@ pub struct GpuDevice {
 #[derive(Debug, Clone, Serialize)]
 pub struct GpuDiscovery {
     pub engine: String,
+    pub platform: &'static str,
+    pub error_detail: Option<String>,
+    pub os_error: Option<i32>,
     pub source: String,
     /// True only when selectors were read from this engine's device listing.
     pub selectors_verified: bool,
@@ -1663,6 +1668,8 @@ fn discover_gpus_with_fallback(profile: &MinerProfile, fallback: impl FnOnce() -
     let mut devices = Vec::new();
     let mut source = "system".to_string();
     let mut diagnostic_code = None;
+    let mut error_detail = None;
+    let mut os_error = None;
     let path = PathBuf::from(profile.executable_path.trim());
     if let Some(args) = engine_list_device_args(&profile.engine) {
         if profile.executable_path.trim().is_empty() {
@@ -1688,7 +1695,9 @@ fn discover_gpus_with_fallback(profile: &MinerProfile, fallback: impl FnOnce() -
                     }
                 }
                 Err(error) => {
-                    diagnostic_code = Some(if error.contains("timed out") { "timed_out" } else { "launch_failed" });
+                    diagnostic_code = Some(error.code(std::env::consts::OS));
+                    error_detail = Some(error.to_string());
+                    os_error = error.spawn_os_error;
                     raw.push_str(&format!("Could not run {} {}: {}", path.display(), args.join(" "), error));
                     #[cfg(unix)]
                     raw.push_str("\nCheck execute permission (chmod +x), a noexec filesystem, the executable architecture and missing shared libraries. Run the same device-listing command in a terminal to inspect its output.");
@@ -1699,19 +1708,19 @@ fn discover_gpus_with_fallback(profile: &MinerProfile, fallback: impl FnOnce() -
     let selectors_verified = !devices.is_empty();
     if devices.is_empty() { devices = fallback(); }
     let raw_excerpt = raw.lines().take(80).collect::<Vec<_>>().join("\n");
-    GpuDiscovery { engine: profile.engine.clone(), source, selectors_verified, diagnostic_code, devices, raw_excerpt, selection_hint: engine_gpu_hint(&profile.engine).into() }
+    GpuDiscovery { engine: profile.engine.clone(), platform: std::env::consts::OS, error_detail, os_error, source, selectors_verified, diagnostic_code, devices, raw_excerpt, selection_hint: engine_gpu_hint(&profile.engine).into() }
 }
 
 // Drain both pipes while waiting: Windows pipes can fill before a large device
 // listing exits. A stuck diagnostic must not leave an engine running forever.
-fn capture_gpu_diagnostic(mut command: Command, timeout: Duration) -> Result<std::process::Output, String> {
-    let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
+fn capture_gpu_diagnostic(mut command: Command, timeout: Duration) -> Result<std::process::Output, GpuDiagnosticError> {
+    let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(GpuDiagnosticError::spawn)?;
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
     wait_for_gpu_diagnostic(child, stdout, stderr, timeout)
 }
 
-fn capture_engine_gpu_diagnostic(engine: &str, command: Command, timeout: Duration) -> Result<std::process::Output, String> {
+fn capture_engine_gpu_diagnostic(engine: &str, command: Command, timeout: Duration) -> Result<std::process::Output, GpuDiagnosticError> {
     #[cfg(target_os = "linux")]
     if engine == "srbminer" { return capture_gpu_terminal_diagnostic(command, timeout); }
     #[cfg(not(target_os = "linux"))]
@@ -1735,7 +1744,7 @@ fn spawn_engine_process(engine: &str, mut command: Command) -> Result<(Child, Pr
 }
 
 #[cfg(target_os = "linux")]
-fn capture_gpu_terminal_diagnostic(command: Command, timeout: Duration) -> Result<std::process::Output, String> {
+fn capture_gpu_terminal_diagnostic(command: Command, timeout: Duration) -> Result<std::process::Output, GpuDiagnosticError> {
     let (child, stdout, stderr) = spawn_terminal_process(command)?;
     wait_for_gpu_diagnostic(child, stdout, stderr, timeout)
 }
@@ -1745,7 +1754,7 @@ fn spawn_terminal_process(command: Command) -> Result<(Child, ProcessReader, Pro
     linux_terminal::spawn(command, Stdio::null())
 }
 
-fn wait_for_gpu_diagnostic(mut child: std::process::Child, stdout: impl Read + Send + 'static, stderr: impl Read + Send + 'static, timeout: Duration) -> Result<std::process::Output, String> {
+fn wait_for_gpu_diagnostic(mut child: std::process::Child, stdout: impl Read + Send + 'static, stderr: impl Read + Send + 'static, timeout: Duration) -> Result<std::process::Output, GpuDiagnosticError> {
     fn reader(stream: impl Read + Send + 'static) -> thread::JoinHandle<std::io::Result<Vec<u8>>> {
         thread::spawn(move || { let mut bytes = Vec::new(); stream.take(1024 * 1024).read_to_end(&mut bytes)?; Ok(bytes) })
     }
@@ -1759,18 +1768,50 @@ fn wait_for_gpu_diagnostic(mut child: std::process::Child, stdout: impl Read + S
             other => {
                 let _ = child.kill();
                 let _ = child.wait();
-                break Err(match other { Err(e) => e.to_string(), _ => "GPU diagnostic timed out".into() });
+                break Err(match other { Err(e) => GpuDiagnosticError::from(e.to_string()), _ => GpuDiagnosticError::timeout() });
             }
         }
     };
-    let stdout = out_reader.join().map_err(|_| "GPU stdout reader failed")?.map_err(|e| e.to_string())?;
-    let stderr = err_reader.join().map_err(|_| "GPU stderr reader failed")?.map_err(|e| e.to_string())?;
+    let stdout = out_reader.join().map_err(|_| "GPU stdout reader failed".to_string())?.map_err(|e| e.to_string())?;
+    let stderr = err_reader.join().map_err(|_| "GPU stderr reader failed".to_string())?.map_err(|e| e.to_string())?;
     Ok(std::process::Output { status: status?, stdout, stderr })
 }
 
 #[cfg(test)]
 mod gpu_discovery_tests {
     use super::*;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_launch_failure_preserves_native_error_without_linux_advice() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("invalid-miner.exe");
+        fs::write(&path, b"This is not a Windows executable").unwrap();
+        let mut profile = MinerProfile::default(); profile.executable_path = path.to_string_lossy().into();
+        let result = discover_gpus_with_fallback(&profile, Vec::new);
+        assert_eq!(result.platform, "windows");
+        assert_eq!(result.diagnostic_code, Some("launch_failed"));
+        assert_eq!(result.os_error, Some(193));
+        assert!(result.error_detail.as_deref().unwrap().contains("193"));
+        assert!(result.raw_excerpt.contains("193"));
+        assert!(!result.raw_excerpt.contains("chmod"));
+        assert!(!result.selectors_verified);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_windowless_listing_captures_mixed_gpu_ids_and_stderr() {
+        // A controlled console fixture exercises the Windows capture path;
+        // no installed engine, driver tuning or pool connection is involved.
+        let mut command = background_command("powershell.exe");
+        command.args(["-NoProfile", "-NonInteractive", "-Command", "[Console]::Out.WriteLine('GPU0 [0][0] [05:00.0] : amd_radeon_graphics'); [Console]::Error.WriteLine('GPU1 [CUDA][0] [0000:01:00.0] : nvidia_geforce_rtx_5060_ti')"]);
+        let output = capture_engine_gpu_diagnostic("srbminer", command, Duration::from_secs(10)).unwrap();
+        assert!(output.status.success());
+        let text = format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        let devices = parse_engine_gpu_output("srbminer", &text);
+        assert_eq!(devices.iter().map(|device|device.selector.as_str()).collect::<Vec<_>>(), vec!["0", "1"]);
+        assert_eq!(devices[1].pci_bus.as_deref(), Some("0000:01:00.0"));
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
@@ -1790,7 +1831,7 @@ mod gpu_discovery_tests {
 
         let mut stuck = Command::new("sh"); stuck.args(["-c", "exec sleep 30"]);
         let started = Instant::now();
-        assert!(capture_gpu_terminal_diagnostic(stuck, Duration::from_millis(100)).unwrap_err().contains("timed out"));
+        assert!(capture_gpu_terminal_diagnostic(stuck, Duration::from_millis(100)).unwrap_err().timed_out);
         assert!(started.elapsed() < Duration::from_secs(3));
     }
 
@@ -1924,7 +1965,7 @@ mod gpu_discovery_tests {
         #[cfg(windows)]
         stuck.args(["-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 30"]);
         let started = Instant::now();
-        assert!(capture_gpu_diagnostic(stuck, Duration::from_millis(100)).unwrap_err().contains("timed out"));
+        assert!(capture_gpu_diagnostic(stuck, Duration::from_millis(100)).unwrap_err().timed_out);
         assert!(started.elapsed() < Duration::from_secs(3));
     }
 }
@@ -2651,7 +2692,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.33")
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.34")
         .connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(120))
         .build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
@@ -2932,7 +2973,7 @@ async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Re
             #[cfg(not(target_os = "linux"))]
             { false }
         },
-        version: "0.7.33",
+        version: "0.7.34",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -4289,7 +4330,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.33", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.34", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -4328,7 +4369,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.33 starting ({})",
+        "{} 0.7.34 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -4359,7 +4400,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.33");
+        println!("MinerDesk Headless 0.7.34");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");
