@@ -8,6 +8,7 @@ import { changeGpuTuning } from "./gpuTuning";
 import type { AppUpdate } from "./updatePolicy";
 import { detectDevCoin } from "./devTip";
 import { selectableGpuDevices, gpuSelectorsUnverified } from "./gpuDiscovery";
+import LinuxElevationControl from "./LinuxElevationControl";
 import { BulkStartError, runMiningCommand, type MiningAction } from "./minerCommands";
 import { dayNames, languageDirection, LANGUAGES, tr } from "./i18n";
 import type {
@@ -17,7 +18,7 @@ import type {
 
 type Tab = "dashboard" | "miners" | "schedules" | "console" | "settings";
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
-const DESKTOP_VERSION = "0.7.32";
+const DESKTOP_VERSION = "0.7.33";
 
 function resolveApiBase() {
   // Important: Tauri 2 uses an HTTP(S)-looking origin such as
@@ -73,7 +74,7 @@ function newMiner(): MinerProfile {
     algorithm: "", pool: "", wallet: "", secondary_wallet: "", merge_secondary: false,
     merge_separator: "+", password: "x", worker: "MinerDesk", gpu_ids: "", gpu_tuning: [],
     core_clock: null, memory_clock: null, core_offset: null, memory_offset: null, power_limit: null, fan: null, api_port: null, disable_cpu: true,
-    extra_args: "", allow_gpu_overlap: false, dev_tip_percent: 0,
+    extra_args: "", allow_gpu_overlap: false, linux_run_as_root: false, dev_tip_percent: 0,
   };
 }
 function newSchedule(): ScheduleWindow {
@@ -534,10 +535,13 @@ export default function App() {
     setBusy(true);
     setCommandError("");
     try {
+      const elevatedStarts = health?.platform === "linux" && (action === "start" || action === "restart" || action === "start-all")
+        ? (config?.miners.filter(m => m.enabled && m.linux_run_as_root && (action === "start-all" || m.id === id)).length || 0) : 0;
       const outcome = await runMiningCommand({
+        elevatedStarts,
         action, id, dirty, token, request: api,
         save: async () => { await saveConfig(config, false); },
-        onStage: stage => setCommandProgress(stage === "saving" ? t("savingBeforeStart") : `${t("commandInProgress")}: ${action}`),
+        onStage: stage => setCommandProgress(stage === "saving" ? t("savingBeforeStart") : elevatedStarts ? (language === "fr" ? "Validez la demande administrateur Linux (120 s par mineur)…" : "Approve the Linux administrator dialog (120 s per miner)…") : `${t("commandInProgress")}: ${action}`),
       });
       setStatusText(action === "start-all" && outcome.startedCount === 0
         ? t("noEnabledProfiles") : `${t("commandSent")}: ${action}`);
@@ -622,7 +626,7 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.32 · multi-miner</span></div></div>
+      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.33 · multi-miner</span></div></div>
       <nav>{(["dashboard","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot"/>{t(x)}</button>)}</nav>
       <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {t("activeMiners").toUpperCase()}</div><div className={`status-pill ${backendStatus?.reachable?"on":"off"}`}><span/>{backendStatus?.reachable?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>
@@ -667,6 +671,7 @@ export default function App() {
           </div>
 
           <GpuTuningPanel profile={selected} devices={gpuSelectionDevices} language={language} onGpuChange={(selector,patch)=>mutateGpuTuning(selected,selector,patch)} onProfileChange={patch=>mutateMiner(selected.id,patch)}/>
+          <LinuxElevationControl profile={selected} platform={health?.platform} available={health?.linux_elevation_available} language={language} onChange={patch=>mutateMiner(selected.id,patch)}/>
           <div className="form-grid three"><NumField label={t("minerApiPort")} value={selected.api_port} onChange={v=>mutateMiner(selected.id,{api_port:v})}/><label className="check field-check"><input type="checkbox" checked={selected.disable_cpu} onChange={e=>mutateMiner(selected.id,{disable_cpu:e.target.checked})}/> {t("disableCpu")}</label></div><label className="check"><input type="checkbox" checked={selected.allow_gpu_overlap} onChange={e=>mutateMiner(selected.id,{allow_gpu_overlap:e.target.checked})}/> {t("gpuOverlap")}</label>
           <div className="section-title">{t("advancedArgs")}</div><textarea value={selected.extra_args} onChange={e=>mutateMiner(selected.id,{extra_args:e.target.value})} placeholder={t("advancedPlaceholder")}/>
         </div>}

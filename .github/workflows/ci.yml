@@ -75,6 +75,10 @@ jobs:
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
         run: bash scripts/build-linux.sh
+      - name: Verify privileged miner stop, owner exit, output and argument handling with fake miners
+        run: |
+          sudo -n python3 tests/linux-elevation-processes.py --helper publish/linux-x64/minerdesk-linux-helper
+          sudo -n python3 tests/linux-elevation-backend.py --backend publish/linux-x64/minerdesk-headless
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: linux-x64

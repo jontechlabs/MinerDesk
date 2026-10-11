@@ -37,6 +37,7 @@ export type MinerProfile = {
   disable_cpu: boolean;
   extra_args: string;
   allow_gpu_overlap: boolean;
+  linux_run_as_root?: boolean;
   /** Voluntary MinerDesk developer tip as a percentage of mining time. */
   dev_tip_percent: number;
 };
@@ -116,6 +117,8 @@ export type InstallResult = {
 };
 
 export type Health = {
+  platform?: string;
+  linux_elevation_available?: boolean;
   version: string;
   headless: boolean;
   desktop_owned: boolean;

@@ -38,7 +38,7 @@ The `.deb` installs the desktop and standalone CLI. The compatibility `minerdesk
 ## Runtime and headless use
 
 ```bash
-sudo apt install ./MinerDesk_0.7.32_amd64.deb
+sudo apt install ./MinerDesk_0.7.33_amd64.deb
 minerdesk
 
 # Installed standalone CLI (or ./minerdesk-headless from the tarball)
@@ -62,3 +62,5 @@ Build on an appropriately old supported distribution to avoid raising minimum gl
 Release validation checks package metadata/content, headless startup/API/shutdown with isolated configuration, and desktop/AppImage smoke launches in a virtual display. It does not validate GPU mining, physical suspend/resume or every desktop environment. Exact outcomes and limits are listed in [0.7.24 validation](docs/VALIDATION-0.7.24.md).
 
 AppImage generation in a container may need `APPIMAGE_EXTRACT_AND_RUN=1` because `/dev/fuse` is unavailable. Do not claim a generated image works on a distro until it is tested there.
+
+The build script also compiles and packages the minimal `minerdesk-linux-helper` supervisor. For a debug/headless build, run `node scripts/prepare-linux-helper.mjs` first. See [Linux administrator mode](docs/LINUX-ELEVATION.md).

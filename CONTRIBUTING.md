@@ -8,6 +8,8 @@ Run `npm test`, `npm run build`, and `cargo test --locked --manifest-path src-ta
 
 Preserve windowless desktop backend ownership, independent console CLI behavior, Job Object protection, heartbeat/PID checks, dated scheduler holds, user-owned manual starts, fresh tuning arguments, uptime reset, and the one-minute task restart interval. Changes to these behaviors need focused regression coverage.
 
+Linux root miner mode must remain opt-in per profile, use system approval and never store passwords or install persistent authorization grants. Preserve private-pipe ownership, process-group cleanup, real exit status and terminal output. CI tests the helper and compiled backend with disposable fake miners, without GPU tuning or pool connections.
+
 Keep Windows installer resources in the Windows Tauri config. Do not commit generated resources, executables, `target`, `node_modules`, `dist`, `publish`, logs or personal configuration. Check new screenshots for identifying data and credentials.
 
 Historical release notes are preserved in `docs/history/` as historical evidence. The current README and source take precedence over obsolete instructions there.

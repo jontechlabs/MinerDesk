@@ -3,6 +3,7 @@ dist/
 target/
 publish/
 src-tauri/resources/*.exe
+src-tauri/resources/minerdesk-linux-helper
 src-tauri/gen/
 *.tsbuildinfo
 Thumbs.db

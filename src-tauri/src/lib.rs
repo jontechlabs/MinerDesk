@@ -39,6 +39,10 @@ mod schedule_control;
 mod app_updates;
 mod external_links;
 mod mining_diagnostics;
+#[cfg(target_os = "linux")]
+mod linux_terminal;
+#[cfg(target_os = "linux")]
+mod linux_elevation;
 #[cfg(test)]
 mod gpu_clock_tests;
 #[cfg(not(target_os = "windows"))]
@@ -288,6 +292,10 @@ mod windows_miner_job {
 
 struct ManagedChild {
     child: Child,
+    #[cfg(target_os = "linux")]
+    elevated: bool,
+    #[cfg(target_os = "linux")]
+    control: Option<std::process::ChildStdin>,
     #[cfg(target_os = "windows")]
     job: windows_miner_job::WindowsMinerJob,
 }
@@ -297,7 +305,9 @@ impl ManagedChild {
         self.child.try_wait()
     }
 
-    fn terminate(&mut self) {
+    fn terminate(&mut self) -> Result<(), String> {
+        #[cfg(target_os = "linux")]
+        if self.elevated { return linux_elevation::stop(&mut self.child, &mut self.control); }
         #[cfg(target_os = "windows")]
         {
             // Terminate the whole miner job, not just the root process. This kills
@@ -312,7 +322,13 @@ impl ManagedChild {
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
+        Ok(())
     }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for ManagedChild {
+    fn drop(&mut self) { self.control.take(); } // EOF stops the root process group.
 }
 
 // ---------- Persisted configuration ----------
@@ -425,6 +441,8 @@ pub struct MinerProfile {
     pub disable_cpu: bool,
     pub extra_args: String,
     pub allow_gpu_overlap: bool,
+    /// Explicit Linux-only administrator approval for this miner, off by default.
+    pub linux_run_as_root: bool,
     /// Optional, explicit support for MinerDesk development. 0 = disabled.
     pub dev_tip_percent: f64,
 }
@@ -457,6 +475,7 @@ impl Default for MinerProfile {
             disable_cpu: true,
             extra_args: String::new(),
             allow_gpu_overlap: false,
+            linux_run_as_root: false,
             dev_tip_percent: 0.0,
         }
     }
@@ -986,10 +1005,22 @@ impl CoreState {
             const CREATE_SUSPENDED: u32 = 0x00000004;
             command.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
         }
+        #[cfg(target_os = "linux")]
+        let (child, stdout, stderr, control, pid) = if profile.linux_run_as_root {
+            self.record_log(id, "system", "[MinerDesk] Awaiting Linux administrator approval for this miner (120 s).".into());
+            let elevated = linux_elevation::spawn(&path, &args, cfg.ui.language == "fr")?;
+            (elevated.child, elevated.stdout, elevated.stderr, Some(elevated.control), elevated.miner_pid)
+        } else {
+            let (child, stdout, stderr) = spawn_engine_process(&profile.engine, command)?;
+            let pid = child.id();
+            (child, stdout, stderr, None, pid)
+        };
+        #[cfg(not(target_os = "linux"))]
         let (child, stdout, stderr) = spawn_engine_process(&profile.engine, command)
             .map_err(|e| format!("Démarrage {}: {e}", profile.name))?;
         #[cfg(target_os = "windows")]
         let mut child = child;
+        #[cfg(not(target_os = "linux"))]
         let pid = child.id();
         #[cfg(target_os = "windows")]
         {
@@ -1018,6 +1049,10 @@ impl CoreState {
             let mut runtime = self.runtime.lock().map_err(|_| "Runtime verrouillé".to_string())?;
             children.insert(id.to_string(), ManagedChild {
                 child,
+                #[cfg(target_os = "linux")]
+                elevated: profile.linux_run_as_root,
+                #[cfg(target_os = "linux")]
+                control,
                 #[cfg(target_os = "windows")]
                 job,
             });
@@ -1061,7 +1096,10 @@ impl CoreState {
     fn stop_miner_locked(&self, id: &str) -> Result<(), String> {
         let managed = self.children.lock().map_err(|_| "Processus verrouillés".to_string())?.remove(id);
         if let Some(mut managed) = managed {
-            managed.terminate();
+            if let Err(error) = managed.terminate() {
+                self.children.lock().map_err(|_| "Processus verrouillés".to_string())?.insert(id.into(), managed);
+                return Err(error);
+            }
         }
         if let Ok(mut runtime) = self.runtime.lock() {
             let rt = runtime.entry(id.to_string()).or_insert_with(|| MinerRuntimeView { id: id.into(), ..Default::default() });
@@ -1703,43 +1741,8 @@ fn capture_gpu_terminal_diagnostic(command: Command, timeout: Duration) -> Resul
 }
 
 #[cfg(target_os = "linux")]
-fn spawn_terminal_process(mut command: Command) -> Result<(Child, ProcessReader, ProcessReader), String> {
-    use std::os::fd::FromRawFd;
-    fn terminal_pair() -> Result<(fs::File, fs::File), String> {
-        use std::os::fd::AsRawFd;
-        let (mut master_fd, mut slave_fd) = (-1, -1);
-        // openpty creates owned descriptors. Convert each exactly once to a
-        // File so every failure path closes it. No shell is involved.
-        if unsafe { libc::openpty(&mut master_fd, &mut slave_fd, std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } != 0 {
-            return Err(format!("Miner terminal capture: {}", std::io::Error::last_os_error()));
-        }
-        let master = unsafe { fs::File::from_raw_fd(master_fd) };
-        let slave = unsafe { fs::File::from_raw_fd(slave_fd) };
-        for file in [&master, &slave] {
-            if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } == -1 {
-                return Err(std::io::Error::last_os_error().to_string());
-            }
-        }
-        Ok((master, slave))
-    }
-    // Separate terminals retain the boundary between stdout and stderr, even
-    // when a miner omits the last newline on one of its streams.
-    let (stdout_master, stdout_slave) = terminal_pair()?;
-    let (stderr_master, stderr_slave) = terminal_pair()?;
-    let child = command.stdin(Stdio::null()).stdout(Stdio::from(stdout_slave)).stderr(Stdio::from(stderr_slave)).spawn().map_err(|e| e.to_string())?;
-    // Command retains its Stdio handles after spawn. Close our slave copies so
-    // the master reaches EOF when the child exits or is killed at the deadline.
-    drop(command);
-    struct TerminalReader(fs::File);
-    impl Read for TerminalReader {
-        fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
-            match self.0.read(bytes) {
-                Err(error) if error.raw_os_error() == Some(libc::EIO) => Ok(0), // Linux PTY EOF
-                result => result,
-            }
-        }
-    }
-    Ok((child, Box::new(TerminalReader(stdout_master)), Box::new(TerminalReader(stderr_master))))
+fn spawn_terminal_process(command: Command) -> Result<(Child, ProcessReader, ProcessReader), String> {
+    linux_terminal::spawn(command, Stdio::null())
 }
 
 fn wait_for_gpu_diagnostic(mut child: std::process::Child, stdout: impl Read + Send + 'static, stderr: impl Read + Send + 'static, timeout: Duration) -> Result<std::process::Output, String> {
@@ -2648,7 +2651,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.32")
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.33")
         .connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(120))
         .build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
@@ -2851,7 +2854,7 @@ struct WebState {
 #[derive(Deserialize)]
 struct LogsQuery { limit: Option<usize> }
 #[derive(Serialize)]
-struct Health { version: &'static str, headless: bool, desktop_owned: bool, miner_crash_guard: bool, config_path: String, scheduler: bool, time: String }
+struct Health { platform: &'static str, linux_elevation_available: bool, version: &'static str, headless: bool, desktop_owned: bool, miner_crash_guard: bool, config_path: String, scheduler: bool, time: String }
 
 fn api_auth(headers: &HeaderMap, state: &WebState) -> Result<(), Response> {
     // Requests originating from the same machine are tagged by a middleware and
@@ -2922,7 +2925,14 @@ mod local_request_tests {
 async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; }
     Json(Health {
-        version: "0.7.32",
+        platform: std::env::consts::OS,
+        linux_elevation_available: {
+            #[cfg(target_os = "linux")]
+            { linux_elevation::available() }
+            #[cfg(not(target_os = "linux"))]
+            { false }
+        },
+        version: "0.7.33",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -4279,7 +4289,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.32", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.33", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -4318,7 +4328,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.32 starting ({})",
+        "{} 0.7.33 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -4349,7 +4359,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.32");
+        println!("MinerDesk Headless 0.7.33");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");
