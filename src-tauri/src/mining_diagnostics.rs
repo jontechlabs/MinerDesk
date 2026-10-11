@@ -10,6 +10,12 @@ pub fn validate_gpu_selection(profile: &super::MinerProfile, french: bool) -> Re
             ("--cuda-lock-mem-clocks",|p,id|super::effective_memory_clock(p,id).map(i64::from)),
             ("--cuda-power-limits",|p,id|super::effective_power_limit(p,id).map(i64::from)),
         ])
+    } else if profile.engine == "bzminer" {
+        ("BzMiner",vec![
+            ("--oc_lock_memory_clock",|p,id|super::effective_memory_clock(p,id).map(i64::from)),
+            ("--oc_core_clock_offset",|p,id|super::effective_core_offset(p,id).map(i64::from)),
+            ("--oc_memory_clock_offset",|p,id|super::effective_memory_offset(p,id).map(i64::from)),
+        ])
     } else {
         ("SRBMiner",vec![
             ("--gpu-plimit0",|p,id|super::effective_power_limit(p,id).map(i64::from)),

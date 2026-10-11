@@ -2318,9 +2318,10 @@ fn append_extended_gpu_tuning(p: &MinerProfile, selected: &[String], args: &mut 
         if selected.is_empty() {
             if let Some(value)=global { args.extend([flag.into(),value.to_string()]); }
         } else if p.engine == "bzminer" {
-            // BzMiner 1.x's space-separated lists document 0 as no change.
-            let values:Vec<_>=selected.iter().map(|id|get(p,id).unwrap_or(0).to_string()).collect();
-            if values.iter().any(|v|v!="0") { args.push(flag.into()); args.extend(values); }
+            // Zero can unlock a clock in newer BzMiner versions. Only complete,
+            // explicit lists are emitted; a blank must never become a zero.
+            let values:Option<Vec<_>>=selected.iter().map(|id|get(p,id).map(|v|v.to_string())).collect();
+            if let Some(values)=values { args.push(flag.into()); args.extend(values); }
         } else {
             let values = match p.engine.as_str() {
                 "lolminer"=>indexed_numeric_list(p,selected,"*",get),
@@ -2333,7 +2334,7 @@ fn append_extended_gpu_tuning(p: &MinerProfile, selected: &[String], args: &mut 
 }
 
 fn build_engine_args_with_language(p: &MinerProfile, french: bool) -> Result<Vec<String>, String> {
-    if p.engine == "srbminer" || p.engine == "npminer" { mining_diagnostics::validate_gpu_selection(p,french)?; }
+    if ["srbminer","npminer","bzminer"].contains(&p.engine.as_str()) { mining_diagnostics::validate_gpu_selection(p,french)?; }
     if ["srbminer","lolminer","bzminer","rigel"].contains(&p.engine.as_str()) {
         let selected=gpu_tokens(&p.gpu_ids);
         let fans=if selected.is_empty() { vec![p.fan] } else { selected.iter().map(|id|effective_fan(p,id)).collect() };

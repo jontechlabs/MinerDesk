@@ -54,12 +54,17 @@ fn option(args: &[String], flag: &str) -> Option<String> {
 }
 
 #[test] fn incomplete_memory_lists_and_invalid_fan_have_actionable_errors() {
-    for engine in ["srbminer","npminer"] {
+    for engine in ["srbminer","npminer","bzminer"] {
         let mut p=profile(engine);p.gpu_tuning[0].memory_clock=None;
-        let error=build_engine_args_with_language(&p,true).unwrap_err();assert!(error.contains("réglages partiels"));assert!(error.contains(if engine=="srbminer"{"--gpu-mclock0"}else{"--cuda-lock-mem-clocks"}));
+        let error=build_engine_args_with_language(&p,true).unwrap_err();assert!(error.contains("réglages partiels"));assert!(error.contains(match engine {"srbminer"=>"--gpu-mclock0","npminer"=>"--cuda-lock-mem-clocks",_=>"--oc_lock_memory_clock"}));
     }
     let mut p=profile("srbminer");p.gpu_tuning[0].core_offset=None;
     assert!(build_engine_args(&p).unwrap_err().contains("--gpu-coffset0"));
     p.gpu_tuning[0].core_offset=Some(0);p.fan=Some(101);
     assert!(build_engine_args_with_language(&p,true).unwrap_err().contains("Ventilateur"));
+    let mut p=profile("bzminer");for gpu in &mut p.gpu_tuning { gpu.memory_clock=Some(0);gpu.core_offset=Some(0);gpu.memory_offset=Some(0); }
+    let args=build_engine_args(&p).unwrap();
+    for flag in ["--oc_lock_memory_clock","--oc_core_clock_offset","--oc_memory_clock_offset"] {
+        let i=args.iter().position(|a|a==flag).unwrap();assert_eq!(&args[i+1..i+3],&["0","0"]);
+    }
 }
