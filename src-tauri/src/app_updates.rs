@@ -70,21 +70,56 @@ pub struct DesktopUpdates { pending: Mutex<Option<Update>>, busy: AtomicBool }
 struct BusyGuard<'a>(&'a AtomicBool);
 impl Drop for BusyGuard<'_> { fn drop(&mut self) { self.0.store(false, Ordering::SeqCst); } }
 
+#[cfg(any(target_os = "windows", test))]
+fn install_location_path(value: &str) -> Option<std::path::PathBuf> {
+    // Tauri NSIS writes InstallLocation as "C:\Program Files\MinerDesk".
+    // Remove only a matching outer pair: quotes are data, never shell syntax.
+    let value = value.trim();
+    let value = if value.starts_with('"') {
+        value.strip_prefix('"')?.strip_suffix('"')?
+    } else { value };
+    if value.is_empty() || value.contains('"') { return None; }
+    Some(value.into())
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_install_target(exe: &std::path::Path, location: Option<&str>) -> Result<&'static str, &'static str> {
+    let Some(location) = location else { return Err("portable"); };
+    let installed = install_location_path(location).ok_or("installation")?;
+    if !installed.is_absolute() { return Err("installation"); }
+    let installed = installed.canonicalize().map_err(|_| "installation")?;
+    let parent = exe.parent().ok_or("installation")?.canonicalize().map_err(|_| "installation")?;
+    // Canonical paths resolve directory junctions before comparing identities.
+    #[cfg(target_os = "windows")]
+    let same = installed.to_string_lossy().to_lowercase() == parent.to_string_lossy().to_lowercase();
+    #[cfg(not(target_os = "windows"))]
+    let same = installed == parent;
+    if same { Ok("windows-x86_64") } else { Err("portable") }
+}
+
+#[cfg(target_os = "windows")]
+fn read_windows_install_location(root: &winreg::RegKey, key: &str) -> Result<Option<String>, &'static str> {
+    use winreg::enums::{KEY_READ, KEY_WOW64_64KEY};
+    // The x64 per-machine NSIS installer writes the 64-bit HKLM view.
+    // Reading directly avoids PowerShell startup, encoding and policy failures.
+    let key = match root.open_subkey_with_flags(key, KEY_READ | KEY_WOW64_64KEY) {
+        Ok(key) => key,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("installation"),
+    };
+    key.get_value("InstallLocation").map(Some).map_err(|_| "installation")
+}
+
 fn install_target(app: &tauri::AppHandle) -> Result<&'static str, &'static str> {
     if cfg!(debug_assertions) { return Err("development"); }
     if std::env::consts::ARCH != "x86_64" { return Err("platform"); }
     #[cfg(target_os = "windows")]
     {
         // A portable executable must not accidentally update a different install.
-        let script = r#"$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $p=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MinerDesk' -ErrorAction Stop; [Console]::Write($p.InstallLocation)"#;
-        let output = super::background_command("powershell.exe").args(["-NoLogo", "-NoProfile", "-Command", script]).output().map_err(|_| "portable")?;
-        let installed = std::path::PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
-        let exe = std::env::current_exe().map_err(|_| "portable")?;
-        if !output.status.success() || installed.as_os_str().is_empty() { return Err("portable"); }
-        let installed = installed.canonicalize().map_err(|_| "portable")?;
-        let parent = exe.parent().ok_or("portable")?.canonicalize().map_err(|_| "portable")?;
-        if installed.to_string_lossy().to_lowercase() != parent.to_string_lossy().to_lowercase() { return Err("portable"); }
-        return Ok("windows-x86_64");
+        let root = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE);
+        let location = read_windows_install_location(&root, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MinerDesk")?;
+        let exe = std::env::current_exe().map_err(|_| "installation")?;
+        return windows_install_target(&exe, location.as_deref());
     }
     #[cfg(target_os = "linux")]
     {
@@ -238,6 +273,57 @@ fn deb_install_result(output: std::process::Output) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn nsis_install_location_quotes_are_path_data() {
+        for value in [r"C:\Program Files\MinerDesk", r"D:\Jon's PC\MinerDesk é $(test)"] {
+            assert_eq!(install_location_path(value), Some(value.into()));
+            assert_eq!(install_location_path(&format!("  \"{value}\"\r\n")), Some(value.into()));
+        }
+        for bad in ["", "  ", "\"\"", "\"", "\"C:\\MinerDesk", "C:\\MinerDesk\"", "\"C:\\MinerDesk\" /args", "\"C:\\Min\"erDesk\""] {
+            assert!(install_location_path(bad).is_none(), "{bad}");
+        }
+    }
+    #[test] fn installed_windows_copy_is_eligible_but_portable_copy_is_not() {
+        let temp = tempfile::tempdir().unwrap();
+        let installed = temp.path().join("MinerDesk Jon's é $(test)");
+        let portable = temp.path().join("portable");
+        std::fs::create_dir(&installed).unwrap(); std::fs::create_dir(&portable).unwrap();
+        let location = installed.to_str().unwrap();
+        let exe = installed.join("MinerDesk.exe");
+        for value in [location.to_string(), format!("\"{location}\""), format!(" \"{location}\"\r\n")] {
+            assert_eq!(windows_install_target(&exe, Some(&value)), Ok("windows-x86_64"));
+            assert_eq!(windows_install_target(&portable.join("MinerDesk.exe"), Some(&value)), Err("portable"));
+        }
+        assert_eq!(windows_install_target(&exe, None), Err("portable"));
+        assert_eq!(windows_install_target(&exe, Some("relative/path")), Err("installation"));
+        assert_eq!(windows_install_target(&exe, Some("\"unclosed")), Err("installation"));
+        assert_eq!(windows_install_target(&exe, Some(temp.path().join("missing").to_str().unwrap())), Err("installation"));
+        #[cfg(target_os = "windows")]
+        assert_eq!(windows_install_target(&exe, Some(&location.to_uppercase())), Ok("windows-x86_64"));
+    }
+    #[cfg(target_os = "windows")]
+    #[test] fn native_registry_read_accepts_nsis_value_and_reports_missing_or_invalid_registration() {
+        // Isolated HKCU fixture: no installed application or HKLM value is touched.
+        struct Fixture(String);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let root = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+                let _ = root.delete_subkey_all(&self.0);
+            }
+        }
+        let fixture = Fixture(format!(r"Software\MinerDeskUpdateTest-{}", uuid::Uuid::new_v4()));
+        let root = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+        assert_eq!(read_windows_install_location(&root, &fixture.0), Ok(None));
+        let (key, _) = root.create_subkey(&fixture.0).unwrap();
+        assert_eq!(read_windows_install_location(&root, &fixture.0), Err("installation"));
+        let temp = tempfile::tempdir().unwrap();
+        let location = format!("\"{}\"", temp.path().display());
+        key.set_value("InstallLocation", &location).unwrap();
+        let read = read_windows_install_location(&root, &fixture.0).unwrap();
+        assert_eq!(read.as_deref(), Some(location.as_str()));
+        assert_eq!(windows_install_target(&temp.path().join("MinerDesk.exe"), read.as_deref()), Ok("windows-x86_64"));
+        key.set_value("InstallLocation", &123u32).unwrap();
+        assert_eq!(read_windows_install_location(&root, &fixture.0), Err("installation"));
+    }
     #[cfg(target_os = "linux")]
     fn installer_output(code: i32, stderr: &str) -> std::process::Output {
         use std::os::unix::process::ExitStatusExt;

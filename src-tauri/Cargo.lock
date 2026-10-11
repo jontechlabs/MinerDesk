@@ -2446,7 +2446,7 @@ dependencies = [
 
 [[package]]
 name = "minerdesk"
-version = "0.7.31"
+version = "0.7.32"
 dependencies = [
  "axum",
  "chrono",
@@ -2475,6 +2475,7 @@ dependencies = [
  "tower-http",
  "uuid",
  "walkdir",
+ "winreg",
  "zip 2.4.2",
 ]
 

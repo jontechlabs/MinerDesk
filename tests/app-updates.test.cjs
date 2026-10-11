@@ -85,6 +85,19 @@ test('headless browser only notifies and opens GitHub downloads',async()=>{
   assert.equal(webCalls,1); assert.equal(calls.length,0); assert.equal(button(view,'Update…'),undefined);
   assert(view.root.findAllByType('a').some(a=>a.props.href===fresh().release_url)); await act(async()=>view.unmount());
 });
+
+test('Windows fallback explains how to enable updates and never offers installation',async()=>{
+  for (const reason of ['portable','installation']) {
+    setup(); nativeUpdate.can_install=false; nativeUpdate.reason=reason; let view;
+    await act(async()=>{view=create(React.createElement(AppUpdates,props()));}); await check(view);
+    assert.equal(button(view,'Update…'),undefined);
+    assert.match(text(view.toJSON()),/Windows setup from GitHub/);
+    assert.match(text(view.toJSON()),/Start menu/);
+    assert(view.root.findAllByType('a').some(a=>a.props.href===fresh().release_url));
+    assert(!calls.some(c=>c[0]==='install_app_update'));
+    await act(async()=>view.unmount());
+  }
+});
 test('automatic checks can be disabled while manual checks remain available',async()=>{
   setup(); preferences.set('minerdesk.updates.enabled','false'); let view;
   await act(async()=>{view=create(React.createElement(AppUpdates,props()));});

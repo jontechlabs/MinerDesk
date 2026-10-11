@@ -16,6 +16,12 @@ From **0.7.29**, every desktop **GitHub downloads** link opens the release page 
 
 Only the Windows installer, Linux `.deb` and Linux AppImage are distributed for x64. There are no macOS/ARM packages in this release. An update with no valid manifest/artifact for the current distribution falls back to the release page. Debian package manager errors or cancelled administrator approval also show that link.
 
+### Windows Update button troubleshooting
+
+Versions **0.7.24–0.7.31** could incorrectly classify an installed Windows copy as portable because the NSIS installer stores `InstallLocation` with surrounding quotes. **0.7.32** reads the 64-bit installation registry directly and removes the matching outer quotes before verifying that the running desktop belongs to that directory. See the [Tauri NSIS installer template](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.12.1/crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi#L660).
+
+If the affected version only shows **GitHub downloads**, download **MinerDesk_0.7.32_x64-setup.exe**, close MinerDesk and install it once. Then launch MinerDesk from the **Start menu**. The next newer release can be installed with **Update…** after confirmation and Windows administrator approval. A ZIP copy launched outside the registered installation still provides a download link only, so it cannot update an unrelated installed copy. Unreadable or invalid registration now has a separate explanation. No manual registry change is needed.
+
 ### Linux administrator prompt troubleshooting
 
 Launch MinerDesk from the desktop Applications menu when installing a Debian update. A desktop process started through SSH can belong to a different login session from the graphical authentication agent, even when its window is visible. If authorization fails, fully quit MinerDesk, reopen it from the Applications menu and retry. Version **0.7.29** distinguishes cancellation, unavailable authorization and package-manager failures, and includes bounded installer output in the error and backend diagnostics. It does not request or store your administrator password, start a terminal authentication agent, or change system authorization rules.

@@ -2648,7 +2648,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.31")
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.32")
         .connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(120))
         .build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
@@ -2922,7 +2922,7 @@ mod local_request_tests {
 async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; }
     Json(Health {
-        version: "0.7.31",
+        version: "0.7.32",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -4279,7 +4279,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.31", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.32", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -4318,7 +4318,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.31 starting ({})",
+        "{} 0.7.32 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -4349,7 +4349,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.31");
+        println!("MinerDesk Headless 0.7.32");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");
