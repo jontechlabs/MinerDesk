@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.32
+
+- Restore the Windows Update button for installed copies by accepting quoted NSIS InstallLocation values.
+- Read the 64-bit Windows installation registry directly instead of launching PowerShell; distinguish unavailable registration from a portable copy.
+- Preserve the installed-directory identity check and explain the one-time setup installation needed by older affected versions.
+- Add path, native Windows registry and update-interface regression tests.
+
 ## 0.7.31
 
 - Add fixed GPU memory clocks and signed core/memory frequency offsets to per-GPU tuning and global defaults, with units and engine-specific controls.
