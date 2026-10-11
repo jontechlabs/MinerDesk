@@ -13,6 +13,8 @@ Enable this only for a miner executable you trust: the miner and its worker proc
 
 The Debian package, AppImage and Linux portable archive include the matching `minerdesk-linux-helper` executable. Keep the helper alongside the executables when using the portable archive. The system must provide `pkexec` and a graphical polkit authentication agent. Launch MinerDesk from the Applications menu in your logged-in desktop session. On Lubuntu the session's polkit agent normally displays the password dialog.
 
+For AppImage, MinerDesk makes a temporary private copy of the bundled helper on the host so root does not need access to the user's FUSE mount. The copy is removed after startup or cancellation; mount permissions are not changed.
+
 If `pkexec` is missing on Debian/Ubuntu, install it with `sudo apt install pkexec`. A missing graphical authentication agent must also be installed or enabled for your desktop environment. A terminal/SSH-only session without an agent cannot approve a start; MinerDesk reports this rather than asking for a password in its console.
 
 Approval can be required again for a restart, a scheduled start or a voluntary-support wallet switch. This mode therefore does not guarantee unattended mining. A cancelled or expired approval never starts a miner in the background.
