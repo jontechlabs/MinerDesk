@@ -1791,9 +1791,12 @@ mod gpu_discovery_tests {
         let result = discover_gpus_with_fallback(&profile, Vec::new);
         assert_eq!(result.platform, "windows");
         assert_eq!(result.diagnostic_code, Some("launch_failed"));
-        assert_eq!(result.os_error, Some(193));
-        assert!(result.error_detail.as_deref().unwrap().contains("193"));
-        assert!(result.raw_excerpt.contains("193"));
+        // Windows versions can reject the same non-PE fixture as bad format
+        // (193) or machine-type mismatch (216). Both must survive unchanged.
+        assert!(matches!(result.os_error, Some(193) | Some(216)), "Unexpected native error: {:?}", result.os_error);
+        let native_code = format!("os error {}", result.os_error.unwrap());
+        assert!(result.error_detail.as_deref().unwrap().contains(&native_code));
+        assert!(result.raw_excerpt.contains(&native_code));
         assert!(!result.raw_excerpt.contains("chmod"));
         assert!(!result.selectors_verified);
     }
