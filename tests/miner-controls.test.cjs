@@ -164,6 +164,23 @@ test('Restart encodes the profile ID and uses the same command path', async () =
   assert.equal(requested, '/api/miners/profile%20a%2Fb/restart');
 });
 
+test('Force mining saves changes and uses only the explicit force endpoint', async () => {
+  const events=[];
+  await runMiningCommand({...defaults(),action:'force-start',dirty:true,elevatedStarts:1,
+    save:async()=>events.push('save'),request:async(url,opts,token,timeout)=>{
+      events.push(url);assert.equal(timeout,160000);return {ok:true,mode:'manual'};
+    }});
+  assert.deepEqual(events,['save','/api/miners/profile-1/force-start']);
+});
+
+test('waiting acknowledgements are not counted as running miners', async () => {
+  assert.equal((await runMiningCommand({...defaults(),request:async()=>({ok:true,mode:'waiting'})})).mode,'waiting');
+  const result=await runMiningCommand({...defaults(),action:'start-all',request:async()=>[
+    {id:'running',result:null,mode:'schedule'},{id:'later',result:null,mode:'waiting'}
+  ]});
+  assert.equal(result.startedCount,1);assert.equal(result.waitingCount,1);
+});
+
 test('Start all surfaces per-profile failures even with HTTP 200', async () => {
   await assert.rejects(runMiningCommand({ ...defaults(), action: 'start-all',
     request: async () => [{ id: 'ok', result: null }, { id: 'bad', result: 'Executable not found' }],

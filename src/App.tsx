@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { ApiTimeoutError, requestJson } from "./api";
 import AppUpdates from "./AppUpdates";
 import BackendPanel from "./BackendPanel";
+import MinerScheduleControls, { ScheduleBadge } from "./MinerScheduleControls";
 import GpuTuningPanel from "./GpuTuningPanel";
 import GpuDiagnostic from "./GpuDiagnostic";
 import { changeGpuTuning } from "./gpuTuning";
@@ -19,7 +20,7 @@ import type {
 
 type Tab = "dashboard" | "miners" | "schedules" | "console" | "settings";
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
-const DESKTOP_VERSION = "0.7.34";
+const DESKTOP_VERSION = "0.7.35";
 
 function resolveApiBase() {
   // Important: Tauri 2 uses an HTTP(S)-looking origin such as
@@ -536,7 +537,7 @@ export default function App() {
     setBusy(true);
     setCommandError("");
     try {
-      const elevatedStarts = health?.platform === "linux" && (action === "start" || action === "restart" || action === "start-all")
+      const elevatedStarts = health?.platform === "linux" && (action === "start" || action === "force-start" || action === "restart" || action === "start-all")
         ? (config?.miners.filter(m => m.enabled && m.linux_run_as_root && (action === "start-all" || m.id === id)).length || 0) : 0;
       const outcome = await runMiningCommand({
         elevatedStarts,
@@ -544,8 +545,9 @@ export default function App() {
         save: async () => { await saveConfig(config, false); },
         onStage: stage => setCommandProgress(stage === "saving" ? t("savingBeforeStart") : elevatedStarts ? (language === "fr" ? "Validez la demande administrateur Linux (120 s par mineur)…" : "Approve the Linux administrator dialog (120 s per miner)…") : `${t("commandInProgress")}: ${action}`),
       });
-      setStatusText(action === "start-all" && outcome.startedCount === 0
-        ? t("noEnabledProfiles") : `${t("commandSent")}: ${action}`);
+      setStatusText(outcome.mode === "waiting" ? t("scheduleCommandWaiting")
+        : action === "start-all" && outcome.waitingCount ? t("bulkScheduleCommand").replace("{started}", String(outcome.startedCount || 0)).replace("{waiting}", String(outcome.waitingCount))
+        : action === "start-all" && outcome.startedCount === 0 ? t("noEnabledProfiles") : `${t("commandSent")}: ${action}`);
     } catch (error) {
       const message = describeCommandError(error);
       setCommandError(message);
@@ -559,7 +561,7 @@ export default function App() {
       void api<MinerStatus[]>("/api/status", {}, token).then(setStatuses).catch(() => undefined);
     }
   }
-  async function minerAction(id: string, action: "start"|"stop"|"restart") {
+  async function minerAction(id: string, action: "start"|"stop"|"restart"|"force-start") {
     await performMiningAction(action, id);
   }
   async function allAction(action: "start-all"|"stop-all") {
@@ -627,12 +629,12 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.34 · multi-miner</span></div></div>
+      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.35 · multi-miner</span></div></div>
       <nav>{(["dashboard","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot"/>{t(x)}</button>)}</nav>
       <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {t("activeMiners").toUpperCase()}</div><div className={`status-pill ${backendStatus?.reachable?"on":"off"}`}><span/>{backendStatus?.reachable?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>
     <main className={tab==="console"?"console-main":""}>
-      <header className="topbar"><div><h1>{title}</h1><p>{statusText}{dirty?` · ${t("unsaved")}`:""}</p></div><div className="top-actions">{dirty&&<button className="btn primary" onClick={()=>saveConfig()} disabled={busy}>{t("save")}</button>}<button className="btn ghost" onClick={()=>allAction("start-all")} disabled={busy||!health}>{t("startAll")}</button><button className="btn danger" onClick={()=>allAction("stop-all")} disabled={busy||!health}>{t("stopAll")}</button></div></header>
+      <header className="topbar"><div><h1>{title}</h1><p>{statusText}{dirty?` · ${t("unsaved")}`:""}</p></div><div className="top-actions">{dirty&&<button className="btn primary" onClick={()=>saveConfig()} disabled={busy}>{t("save")}</button>}<button className="btn ghost" onClick={()=>allAction("start-all")} title={t("startAllScheduleHelp")} disabled={busy||!health}>{t("startAll")}</button><button className="btn danger" onClick={()=>allAction("stop-all")} disabled={busy||!health}>{t("stopAll")}</button></div></header>
       <AppUpdates desktop={isTauri} language={language} settings={tab === "settings"} dirty={dirty} busy={busy || backendBusy || Boolean(pendingPower)} onInstalling={setAppUpdating} checkWeb={(force) => api<AppUpdate>(`/api/updates?force=${force}`, {}, token, 25000)}/>
 
       {commandProgress && <div className="command-progress" role="status">{commandProgress}</div>}
@@ -646,7 +648,7 @@ export default function App() {
       {tab==="dashboard"&&<section className="page">
         <div className="metric-grid"><Metric title={t("activeMiners")} value={`${summary.running} / ${filtered.length}`} accent/><Metric title={t("totalPower")} value={`${summary.power.toFixed(0)} W`}/><Metric title={t("maxTemp")} value={summary.temp?`${summary.temp.toFixed(0)} °C`:"—"}/><Metric title={t("sharesAR")} value={`${summary.accepted} / ${summary.rejected}`}/></div>
         <div className="card filterbar"><input placeholder={t("filterPlaceholder")} value={filterText} onChange={e=>setFilterText(e.target.value)}/><select value={filterEngine} onChange={e=>setFilterEngine(e.target.value)}><option value="all">{t("allMiners")}</option>{engines.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select><select value={filterState} onChange={e=>setFilterState(e.target.value)}><option value="all">{t("allStates")}</option><option value="running">{t("running")}</option><option value="stopped">{t("stopped")}</option><option value="disabled">{t("disabled")}</option></select></div>
-        <div className="card table-card"><div className="table-wrap"><table><thead><tr><th>{t("profile")}</th><th>{t("engine")}</th><th>{t("algoGpu")}</th><th>{t("state")}</th><th>{t("hashrate")}</th><th>W</th><th>°C</th><th>A/R</th><th>{t("uptime")}</th><th/></tr></thead><tbody>{filtered.map(s=><tr key={s.profile.id}><td><strong>{s.profile.name}</strong><small>{s.profile.pool}</small>{s.runtime.last_error&&<small className="miner-runtime-error">{s.runtime.last_error}</small>}</td><td>{engines.find(e=>e.id===s.profile.engine)?.name||s.profile.engine}</td><td>{s.profile.algorithm||"—"}<small>GPU {s.profile.gpu_ids||t("allGpus")}</small></td><td>{s.runtime.running?<span className="state run">● {t("mining")}</span>:!s.profile.enabled?<><span className="state disabled">○ {t("disabled").toUpperCase()}</span><small className="disabled-note">{t("minerDisabledHint")}</small></>:<span className="state stop">○ {t("stop").toUpperCase()}</span>}{s.runtime.running&&!s.profile.enabled&&<small className="disabled-note">{t("minerDisabledHint")}</small>}{s.runtime.dev_tip_active&&<small className="dev-tip-active-badge">♥ {t("devTipActive")}</small>}{s.scheduler_paused?<small className="scheduler-paused" title={t("schedulerPausedHelp")}>⏸ {t("schedulerPaused")}</small>:s.scheduled_now&&<small className="scheduled">⏱ {t("scheduled")}</small>}</td><td>{formatHashrate(s.runtime.metrics.hashrate_hps)}</td><td>{s.runtime.metrics.power_w?.toFixed(0)||"—"}</td><td>{s.runtime.metrics.temperature_c?.toFixed(0)||"—"}</td><td>{s.runtime.metrics.accepted}/{s.runtime.metrics.rejected}</td><td>{fmtUptime(s.runtime.uptime_seconds)}</td><td className="row-actions"><div className="row-actions-inner">{s.runtime.running?<button disabled={busy||!health} onClick={()=>minerAction(s.profile.id,"stop")}>{t("stop")}</button>:<button disabled={busy||!health||!s.profile.enabled} title={!s.profile.enabled?t("minerDisabledHint"):undefined} onClick={()=>minerAction(s.profile.id,"start")}>{t("start")}</button>}<button onClick={()=>{setSelectedMiner(s.profile.id);setTab("miners")}}>{t("config")}</button></div></td></tr>)}</tbody></table></div></div>
+        <div className="card table-card"><div className="table-wrap"><table><thead><tr><th>{t("profile")}</th><th>{t("engine")}</th><th>{t("algoGpu")}</th><th>{t("state")}</th><th>{t("hashrate")}</th><th>W</th><th>°C</th><th>A/R</th><th>{t("uptime")}</th><th/></tr></thead><tbody>{filtered.map(s=><tr key={s.profile.id}><td><strong>{s.profile.name}</strong><small>{s.profile.pool}</small>{s.runtime.last_error&&<small className="miner-runtime-error">{s.runtime.last_error}</small>}</td><td>{engines.find(e=>e.id===s.profile.engine)?.name||s.profile.engine}</td><td>{s.profile.algorithm||"—"}<small>GPU {s.profile.gpu_ids||t("allGpus")}</small></td><td>{s.runtime.running?<span className="state run">● {t("mining")}</span>:!s.profile.enabled?<><span className="state disabled">○ {t("disabled").toUpperCase()}</span><small className="disabled-note">{t("minerDisabledHint")}</small></>:<span className="state stop">○ {t("stop").toUpperCase()}</span>}{s.runtime.running&&!s.profile.enabled&&<small className="disabled-note">{t("minerDisabledHint")}</small>}{s.runtime.dev_tip_active&&<small className="dev-tip-active-badge">♥ {t("devTipActive")}</small>}<ScheduleBadge status={s} hasSchedule={config!.schedules.some(w=>w.enabled&&w.miner_ids.includes(s.profile.id))} language={language}/></td><td>{formatHashrate(s.runtime.metrics.hashrate_hps)}</td><td>{s.runtime.metrics.power_w?.toFixed(0)||"—"}</td><td>{s.runtime.metrics.temperature_c?.toFixed(0)||"—"}</td><td>{s.runtime.metrics.accepted}/{s.runtime.metrics.rejected}</td><td>{fmtUptime(s.runtime.uptime_seconds)}</td><td className="row-actions"><MinerScheduleControls status={s} hasSchedule={config!.schedules.some(w=>w.enabled&&w.miner_ids.includes(s.profile.id))} language={language} busy={busy} connected={!!health} onAction={action=>minerAction(s.profile.id,action)} onConfig={()=>{setSelectedMiner(s.profile.id);setTab("miners")}}/></td></tr>)}</tbody></table></div></div>
       </section>}
 
       {tab==="miners"&&config&&<section className="page miner-layout">

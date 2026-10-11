@@ -24,12 +24,12 @@ Les réglages disponibles dépendent du moteur et du matériel. Les statistiques
 
 ## Installation
 
-**Windows 10/11 x64 :** télécharger `MinerDesk_0.7.34_x64-setup.exe` depuis la Release. L'installeur configure le backend privilégié ; l'interface graphique reste exécutée comme utilisateur normal.
+**Windows 10/11 x64 :** télécharger `MinerDesk_0.7.35_x64-setup.exe` depuis la Release. L'installeur configure le backend privilégié ; l'interface graphique reste exécutée comme utilisateur normal.
 
 **Linux x64 compatible Debian :** télécharger le paquet `.deb`, puis :
 
 ```bash
-sudo apt install ./MinerDesk_0.7.34_amd64.deb
+sudo apt install ./MinerDesk_0.7.35_amd64.deb
 ```
 
 La signature Authenticode Windows reste en attente. Les mises à jour 0.7.24 des installateurs, AppImages et paquets Debian disposent d’une signature cryptographique vérifiée par MinerDesk. Comparez aussi leur SHA-256 au fichier `SHA256SUMS.txt` de la Release.
@@ -44,7 +44,7 @@ Captures réelles de l'interface web 0.7.21, conservée dans 0.7.24. Les valeurs
 
 ## Contrôle et sécurité
 
-Un arrêt manuel suspend les occurrences de planification en cours. Un démarrage manuel réussi reprend le contrôle et n'est pas arrêté par la fin d'une plage. La prochaine occurrence reste disponible. Fermer un onglet web n'arrête pas le planificateur si le backend reste actif.
+Un arrêt manuel suspend les occurrences de planification en cours. Depuis la version 0.7.35, **Start / Restart / Start all** respectent les plannings activés affectés au profil : démarrage dans un créneau, attente du prochain sinon. **Forcer le minage** contourne explicitement les horaires, sans limite de temps ; **Reprendre le planning** rétablit les créneaux et arrête une session forcée si elle est hors horaires. Sans planning activé affecté, le démarrage reste immédiat. La prochaine occurrence reste disponible. Fermer un onglet web n'arrête pas le planificateur si le backend reste actif. Voir le [guide des plannings](SCHEDULING.md).
 
 Sur Windows, quitter réellement le bureau arrête son backend et ses mineurs ; réduire dans la zone de notification ne quitte pas l'application. Le CLI autonome reste indépendant.
 

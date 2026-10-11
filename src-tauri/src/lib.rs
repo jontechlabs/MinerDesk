@@ -52,7 +52,7 @@ mod desktop_web;
 use app_updates::{check_app_update, install_app_update};
 #[cfg(any(target_os = "windows", test))]
 mod config_sync;
-use schedule_control::{scheduler_should_stop_session, ActiveOccurrences, LocalMoment, ManualScheduleControl, StopSnapshot};
+use schedule_control::{scheduler_should_stop_session, user_start_origin, ActiveOccurrences, LocalMoment, ManualScheduleControl, StopSnapshot};
 
 use uuid::Uuid;
 use walkdir::WalkDir;
@@ -614,6 +614,7 @@ pub struct MinerStatus {
     pub scheduled_now: bool,
     /// Manual Stop has suspended the currently active schedule occurrence.
     pub scheduler_paused: bool,
+    pub has_schedule: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -961,16 +962,59 @@ impl CoreState {
         }
         self.start_miner_mode_locked(id, started_by, false)?;
         if started_by == "manual" {
-            // Start all may explicitly take ownership of an already-running
+            // Force mining may explicitly take ownership of an already-running
             // scheduled session; do not leave its origin as "schedule".
             if let Ok(mut runtime) = self.runtime.lock() {
                 if let Some(rt) = runtime.get_mut(id) { rt.started_by = "manual".into(); }
             }
             let changed = self.manual_schedule.lock().map_err(|_| "Scheduler lock poisoned".to_string())?.resume(id);
             if changed { self.persist_manual_schedule()?; }
-            self.record_log(id, "system", "[Scheduler] Manual Start: this session is user-owned and is not stopped when a schedule window ends.".into());
+            self.record_log(id, "system", "[Scheduler] Forced/manual mining: no time limit. Use Start to return a scheduled profile to its windows.".into());
         }
         Ok(())
+    }
+
+    fn start_miner_respecting_schedule(self: &Arc<Self>, id: &str, restart: bool) -> Result<&'static str, String> {
+        let _lifecycle = self.lifecycle.lock().map_err(|_| "Lifecycle lock poisoned".to_string())?;
+        self.start_miner_respecting_schedule_locked(id, restart, Local::now())
+    }
+
+    // Caller holds lifecycle; evaluate the clock after acquiring it, never from
+    // an earlier UI request or a snapshot taken before a slow polkit operation.
+    fn start_miner_respecting_schedule_locked(self: &Arc<Self>, id: &str, restart: bool, now: chrono::DateTime<Local>) -> Result<&'static str, String> {
+        if self.shutting_down.load(Ordering::SeqCst) { return Err("MinerDesk is shutting down".into()); }
+        let cfg = self.config();
+        let profile = cfg.miners.iter().find(|m| m.id == id).ok_or_else(|| format!("Profil introuvable: {id}"))?;
+        if !profile.enabled { return Err(format!("{} est désactivé", profile.name)); }
+        let has_schedule = cfg.schedules.iter().any(|s| s.enabled && s.miner_ids.iter().any(|m| m == id));
+        let active = schedule_occurrences(&cfg.schedules, now);
+        let origin = user_start_origin(has_schedule, active.contains_key(id), false);
+        if restart || origin.is_none() { self.stop_miner_locked(id)?; }
+        if let Some(origin) = origin {
+            self.start_miner_mode_locked(id, origin, false)?;
+            self.cancel_power_action();
+        }
+        // An ordinary Start also returns a running forced session to the
+        // scheduler. No second process is launched when it is already running.
+        {
+            let mut runtime = self.runtime.lock().map_err(|_| "Runtime lock poisoned".to_string())?;
+            let rt = runtime.entry(id.into()).or_insert_with(|| MinerRuntimeView { id: id.into(), ..Default::default() });
+            rt.started_by = origin.unwrap_or("schedule").into();
+            rt.last_error.clear();
+        }
+        let changed = self.manual_schedule.lock().map_err(|_| "Scheduler lock poisoned".to_string())?.resume(id);
+        if changed { self.persist_manual_schedule()?; }
+        let mode = origin.unwrap_or("waiting");
+        let message = match (cfg.ui.language.as_str(), mode) {
+            ("fr", "schedule") => "[Scheduler] Planning repris : le minage s’arrêtera à la fin du dernier créneau actif.",
+            ("fr", "waiting") => "[Scheduler] Planning repris : en attente du prochain créneau. Aucun mineur lancé hors horaires.",
+            ("fr", _) => "[Scheduler] Aucun planning actif affecté : démarrage manuel sans limite horaire.",
+            (_, "schedule") => "[Scheduler] Schedule resumed: mining stops when the last active window ends.",
+            (_, "waiting") => "[Scheduler] Schedule resumed: waiting for the next window. No miner launched outside scheduled hours.",
+            _ => "[Scheduler] No enabled schedule assigned: manual mining without a time limit.",
+        };
+        self.record_log(id, "system", message.into());
+        Ok(mode)
     }
 
     // The caller must hold lifecycle for every start/restart/stop operation.
@@ -1146,19 +1190,6 @@ impl CoreState {
         persisted
     }
 
-    fn restart_miner_manually(self: &Arc<Self>, id: &str) -> Result<(), String> {
-        let _lifecycle = self.lifecycle.lock().map_err(|_| "Lifecycle lock poisoned".to_string())?;
-        // Restart is an explicit manual override too. Cancel a pending power
-        // action first so the countdown cannot suspend the newly restarted miner.
-        self.cancel_power_action();
-        self.stop_miner_locked(id)?;
-        self.start_miner_mode_locked(id, "manual", false)?;
-        let changed = self.manual_schedule.lock().map_err(|_| "Scheduler lock poisoned".to_string())?.resume(id);
-        if changed { self.persist_manual_schedule()?; }
-        self.record_log(id, "system", "[Scheduler] Manual Restart: this session is user-owned and is not stopped when a schedule window ends.".into());
-        Ok(())
-    }
-
     // Internal shutdown, not the user-facing Stop all command. Once shutdown
     // begins, no scheduler or dev-tip restart may create a new child process.
     fn stop_all(&self) {
@@ -1167,6 +1198,45 @@ impl CoreState {
             let ids: Vec<String> = self.children.lock().map(|m| m.keys().cloned().collect()).unwrap_or_default();
             for id in ids { let _ = self.stop_miner_locked(&id); }
         }
+    }
+
+    // The caller holds lifecycle. A deterministic clock also lets the same
+    // production tick be tested at window boundaries without real mining/sleep.
+    fn scheduler_tick_locked(self: &Arc<Self>, now: chrono::DateTime<Local>, previous_active_schedules: &mut HashSet<String>) {
+        self.refresh_processes();
+        let cfg = self.config();
+        let active_schedule_set = active_schedule_ids(&cfg.schedules, now);
+        let occurrences = schedule_occurrences(&cfg.schedules, now);
+        let active: HashSet<String> = occurrences.keys().cloned().collect();
+        let (control, changed) = {
+            let Ok(mut control) = self.manual_schedule.lock() else { return; };
+            let changed = control.prune(&occurrences);
+            (control.clone(), changed)
+        };
+        if changed {
+            if let Err(e) = self.persist_manual_schedule() { backend_diagnostic_log(&e); }
+        }
+        for id in &active {
+            if !control.is_paused(id, &occurrences) && !self.is_running(id) && !self.is_dev_tip_switching(id) {
+                if let Err(e) = self.start_miner_mode_locked(id, "schedule", false) { self.record_log(id, "system", format!("[Scheduler] {e}")); }
+            }
+        }
+        let scheduled_running: Vec<String> = self.runtime.lock().map(|r| r.values()
+            .filter(|x| scheduler_should_stop_session(x.running, &x.started_by, active.contains(&x.id)))
+            .map(|x| x.id.clone()).collect()).unwrap_or_default();
+        for id in scheduled_running { let _ = self.stop_miner_locked(&id); }
+
+        let ended: Vec<String> = previous_active_schedules.difference(&active_schedule_set).cloned().collect();
+        if !ended.is_empty() && active.is_empty() {
+            self.refresh_processes();
+            let any_running = self.runtime.lock().map(|r| r.values().any(|x| x.running)).unwrap_or(false);
+            if !any_running && self.pending_power_action().is_none() {
+                if let Some(schedule) = ended.iter().filter_map(|id| cfg.schedules.iter().find(|s| &s.id == id)).find(|s| s.post_action == "hibernate" || s.post_action == "sleep") {
+                    self.request_power_action(schedule);
+                }
+            }
+        }
+        *previous_active_schedules = active_schedule_set;
     }
 
     fn statuses(&self) -> Vec<MinerStatus> {
@@ -1185,7 +1255,8 @@ impl CoreState {
                 rt.started_at = None;
                 rt.uptime_seconds = 0;
             }
-            MinerStatus { scheduled_now: active_sched.contains(&p.id), scheduler_paused: control.is_paused(&p.id, &active_occurrences), profile: p, runtime: rt }
+            let has_schedule = cfg.schedules.iter().any(|s| s.enabled && s.miner_ids.contains(&p.id));
+            MinerStatus { scheduled_now: active_sched.contains(&p.id), scheduler_paused: control.is_paused(&p.id, &active_occurrences), has_schedule, profile: p, runtime: rt }
         }).collect()
     }
 
@@ -1224,6 +1295,101 @@ fn spawn_reader<R: Read + Send + 'static>(reader: R, state: Arc<CoreState>, id: 
 #[cfg(all(test, target_os = "linux"))]
 mod linux_mining_console_tests {
     use super::*;
+    use chrono::TimeZone;
+
+    struct SessionGuard(Arc<CoreState>);
+    impl Drop for SessionGuard { fn drop(&mut self) { self.0.stop_all(); } }
+
+    fn schedule_time(hour: u32, minute: u32) -> chrono::DateTime<Local> {
+        Local.with_ymd_and_hms(2026, 10, 12, hour, minute, 0).single().unwrap()
+    }
+
+    fn scheduled_fixture(dir: &Path) -> SessionGuard {
+        let state = fixture_state(dir, "#!/bin/sh\nexec sleep 30\n");
+        let window: ScheduleWindow = serde_json::from_value(json!({
+            "id":"test-window", "name":"Test window", "enabled":true,
+            "days":[1,2,3,4,5,6,7], "start":"08:00", "end":"16:00", "miner_ids":["fixture"],
+            "post_action":"sleep", "require_confirmation":true, "countdown_seconds":60,
+            "wake_enabled":false, "wake_minutes_before":5
+        })).unwrap();
+        state.config.write().unwrap().schedules = vec![window];
+        SessionGuard(state)
+    }
+
+    fn user_start_at(state: &Arc<CoreState>, restart: bool, now: chrono::DateTime<Local>) -> &'static str {
+        let _lock = state.lifecycle.lock().unwrap();
+        state.start_miner_respecting_schedule_locked("fixture", restart, now).unwrap()
+    }
+
+    fn tick_at(state: &Arc<CoreState>, previous: &mut HashSet<String>, now: chrono::DateTime<Local>) {
+        let _lock = state.lifecycle.lock().unwrap();
+        state.scheduler_tick_locked(now, previous);
+    }
+
+    #[test]
+    fn stop_then_start_resumes_schedule_and_end_requests_power_confirmation() {
+        let dir = tempfile::tempdir().unwrap(); let guard = scheduled_fixture(dir.path()); let state = &guard.0;
+        let mut previous = HashSet::new(); tick_at(state, &mut previous, schedule_time(10, 0));
+        state.stop_miner_manually("fixture").unwrap();
+        assert!(!state.is_running("fixture"));
+        // The fixture's dated hold is added explicitly; the real Stop above also
+        // exercises termination using the ordinary clock without altering a rig.
+        state.manual_schedule.lock().unwrap().pause("fixture", &schedule_occurrences(&state.config().schedules, schedule_time(10,0)));
+        assert!(state.manual_schedule.lock().unwrap().is_paused("fixture", &schedule_occurrences(&state.config().schedules, schedule_time(10,0))));
+        assert_eq!(user_start_at(state, false, schedule_time(10,1)), "schedule");
+        assert_eq!(state.runtime.lock().unwrap()["fixture"].started_by, "schedule");
+        assert!(state.manual_schedule.lock().unwrap().snapshot().is_empty());
+        tick_at(state, &mut previous, schedule_time(16,0));
+        assert!(!state.is_running("fixture"));
+        assert_eq!(state.pending_power_action().unwrap().action, "sleep");
+    }
+
+    #[test]
+    fn ordinary_restart_retains_schedule_ownership_and_stops_at_end() {
+        let dir = tempfile::tempdir().unwrap(); let guard = scheduled_fixture(dir.path()); let state = &guard.0;
+        assert_eq!(user_start_at(state, false, schedule_time(10,0)), "schedule");
+        let first = state.runtime.lock().unwrap()["fixture"].pid;
+        assert_eq!(user_start_at(state, true, schedule_time(10,1)), "schedule");
+        assert_ne!(state.runtime.lock().unwrap()["fixture"].pid, first);
+        tick_at(state, &mut HashSet::new(), schedule_time(16,0)); assert!(!state.is_running("fixture"));
+    }
+
+    #[test]
+    fn outside_window_waits_force_survives_and_resume_stops_forced_process() {
+        let dir = tempfile::tempdir().unwrap(); let guard = scheduled_fixture(dir.path()); let state = &guard.0;
+        assert_eq!(user_start_at(state, false, schedule_time(16,0)), "waiting");
+        assert!(state.children.lock().unwrap().is_empty());
+        state.start_miner("fixture", "manual").unwrap();
+        tick_at(state, &mut HashSet::new(), schedule_time(16,1)); assert!(state.is_running("fixture"));
+        assert_eq!(user_start_at(state, false, schedule_time(16,2)), "waiting");
+        assert!(!state.is_running("fixture"));
+        tick_at(state, &mut HashSet::new(), schedule_time(8,0));
+        assert_eq!(state.runtime.lock().unwrap()["fixture"].started_by, "schedule");
+        assert!(state.is_running("fixture"));
+    }
+
+    #[test]
+    fn resuming_forced_mining_inside_window_reuses_process_and_restores_end_time() {
+        let dir = tempfile::tempdir().unwrap(); let guard = scheduled_fixture(dir.path()); let state = &guard.0;
+        state.start_miner("fixture", "manual").unwrap(); let pid = state.runtime.lock().unwrap()["fixture"].pid;
+        assert_eq!(user_start_at(state, false, schedule_time(10,0)), "schedule");
+        assert_eq!(state.runtime.lock().unwrap()["fixture"].pid, pid);
+        tick_at(state, &mut HashSet::new(), schedule_time(16,0)); assert!(!state.is_running("fixture"));
+    }
+
+    #[test]
+    fn overlapping_windows_stop_only_at_last_end_and_disabled_windows_do_not_gate_start() {
+        let dir = tempfile::tempdir().unwrap(); let guard = scheduled_fixture(dir.path()); let state = &guard.0;
+        {
+            let mut cfg = state.config.write().unwrap(); let mut second = cfg.schedules[0].clone();
+            second.id = "second".into(); second.start = "12:00".into(); second.end = "18:00".into(); cfg.schedules.push(second);
+        }
+        user_start_at(state, false, schedule_time(13,0));
+        tick_at(state, &mut HashSet::new(), schedule_time(16,0)); assert!(state.is_running("fixture"));
+        tick_at(state, &mut HashSet::new(), schedule_time(18,0)); assert!(!state.is_running("fixture"));
+        for window in &mut state.config.write().unwrap().schedules { window.enabled = false; }
+        assert_eq!(user_start_at(state, false, schedule_time(18,1)), "manual"); assert!(state.is_running("fixture"));
+    }
 
     fn fixture_state(dir: &Path, script: &str) -> Arc<CoreState> {
         let path = dir.join("fixture-miner");
@@ -1353,7 +1519,7 @@ mod linux_mining_console_tests {
         state.start_miner("fixture", "manual").unwrap();
         wait_until(|| state.runtime.lock().unwrap()["fixture"].metrics.hashrate_hps == Some(78e12));
         let first_pid = state.runtime.lock().unwrap()["fixture"].pid.unwrap();
-        state.restart_miner_manually("fixture").unwrap();
+        state.start_miner_respecting_schedule("fixture", true).unwrap();
         wait_until(|| state.runtime.lock().unwrap()["fixture"].metrics.hashrate_hps == Some(78e12));
         assert_ne!(state.runtime.lock().unwrap()["fixture"].pid, Some(first_pid));
         assert_eq!(unsafe { libc::kill(first_pid as libc::pid_t, 0) }, -1);
@@ -2695,7 +2861,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.34")
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.35")
         .connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(120))
         .build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
@@ -2831,41 +2997,7 @@ fn start_scheduler(state: Arc<CoreState>) {
             {
                 let Ok(_lifecycle) = state.lifecycle.lock() else { return; };
                 if state.shutting_down.load(Ordering::SeqCst) { return; }
-                state.refresh_processes();
-                let cfg = state.config();
-                let now = Local::now();
-                let active_schedule_set = active_schedule_ids(&cfg.schedules, now);
-                let occurrences = schedule_occurrences(&cfg.schedules, now);
-                let active: HashSet<String> = occurrences.keys().cloned().collect();
-                let (control, changed) = {
-                    let Ok(mut control) = state.manual_schedule.lock() else { return; };
-                    let changed = control.prune(&occurrences);
-                    (control.clone(), changed)
-                };
-                if changed {
-                    if let Err(e) = state.persist_manual_schedule() { backend_diagnostic_log(&e); }
-                }
-                for id in &active {
-                    if !control.is_paused(id, &occurrences) && !state.is_running(id) && !state.is_dev_tip_switching(id) {
-                        if let Err(e) = state.start_miner_mode_locked(id, "schedule", false) { state.record_log(id, "system", format!("[Scheduler] {e}")); }
-                    }
-                }
-                let scheduled_running: Vec<String> = state.runtime.lock().map(|r| r.values()
-                    .filter(|x| scheduler_should_stop_session(x.running, &x.started_by, active.contains(&x.id)))
-                    .map(|x| x.id.clone()).collect()).unwrap_or_default();
-                for id in scheduled_running { let _ = state.stop_miner_locked(&id); }
-
-                let ended: Vec<String> = previous_active_schedules.difference(&active_schedule_set).cloned().collect();
-                if !ended.is_empty() && active.is_empty() {
-                    state.refresh_processes();
-                    let any_running = state.runtime.lock().map(|r| r.values().any(|x| x.running)).unwrap_or(false);
-                    if !any_running && state.pending_power_action().is_none() {
-                        if let Some(schedule) = ended.iter().filter_map(|id| cfg.schedules.iter().find(|s| &s.id == id)).find(|s| s.post_action == "hibernate" || s.post_action == "sleep") {
-                            state.request_power_action(schedule);
-                        }
-                    }
-                }
-                previous_active_schedules = active_schedule_set;
+                state.scheduler_tick_locked(Local::now(), &mut previous_active_schedules);
             }
             state.process_pending_power_action();
             thread::sleep(Duration::from_secs(1));
@@ -2976,7 +3108,7 @@ async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Re
             #[cfg(not(target_os = "linux"))]
             { false }
         },
-        version: "0.7.34",
+        version: "0.7.35",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -3034,16 +3166,17 @@ async fn miner_command_response(core: Arc<CoreState>, id: String, action: &'stat
         let began = Instant::now();
         backend_diagnostic_log(&format!("miner command {action} requested for profile {id}"));
         let result = match action {
-            "start" => core.start_miner(&id, "manual"),
-            "stop" => core.stop_miner_manually(&id),
-            "restart" => core.restart_miner_manually(&id),
+            "start" => core.start_miner_respecting_schedule(&id, false).map(Some),
+            "force-start" => core.start_miner(&id, "manual").map(|_| Some("manual")),
+            "stop" => core.stop_miner_manually(&id).map(|_| None),
+            "restart" => core.start_miner_respecting_schedule(&id, true).map(Some),
             _ => Err(format!("Unknown mining command: {action}")),
         };
         if let Err(ref e) = result { core.record_command_error(&id, action, e); }
         backend_diagnostic_log(&format!("miner command {action} finished for profile {id}; ok={}; elapsed_ms={}", result.is_ok(), began.elapsed().as_millis()));
         result
     }).await {
-        Ok(Ok(())) => Json(json!({"ok":true})).into_response(),
+        Ok(Ok(mode)) => Json(json!({"ok":true,"mode":mode})).into_response(),
         Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(json!({"error":e}))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":format!("Mining command worker failed: {e}")}))).into_response(),
     }
@@ -3057,6 +3190,10 @@ async fn api_stop(AxumPath(id): AxumPath<String>, AxumState(s): AxumState<WebSta
     if let Err(r) = api_auth(&headers, &s) { return r; }
     miner_command_response(s.core, id, "stop").await
 }
+async fn api_force_start(AxumPath(id): AxumPath<String>, AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
+    if let Err(r) = api_auth(&headers, &s) { return r; }
+    miner_command_response(s.core, id, "force-start").await
+}
 async fn api_restart(AxumPath(id): AxumPath<String>, AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; }
     miner_command_response(s.core, id, "restart").await
@@ -3067,9 +3204,11 @@ async fn api_start_all(AxumState(s): AxumState<WebState>, headers: HeaderMap) ->
         let cfg = s.core.config();
         let mut results = vec![];
         for m in cfg.miners.iter().filter(|m| m.enabled) {
-            let error = s.core.start_miner(&m.id, "manual").err();
+            let result = s.core.start_miner_respecting_schedule(&m.id, false);
+            let mode = result.as_ref().ok().copied();
+            let error = result.err();
             if let Some(ref e) = error { s.core.record_command_error(&m.id, "start-all", e); }
-            results.push(json!({"id":m.id,"result":error}));
+            results.push(json!({"id":m.id,"result":error,"mode":mode}));
         }
         // Keep the established API contract; the UI now checks each result.
         Value::Array(results)
@@ -3378,6 +3517,7 @@ async fn serve_bound_web(core: Arc<CoreState>, listener: tokio::net::TcpListener
         .route("/api/miners/start-all", post(api_start_all))
         .route("/api/miners/stop-all", post(api_stop_all))
         .route("/api/miners/:id/start", post(api_start))
+        .route("/api/miners/:id/force-start", post(api_force_start))
         .route("/api/miners/:id/stop", post(api_stop))
         .route("/api/miners/:id/restart", post(api_restart))
         .route("/api/miners/:id/logs", get(api_logs))
@@ -4333,7 +4473,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.34", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.35", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -4372,7 +4512,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.34 starting ({})",
+        "{} 0.7.35 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -4403,7 +4543,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.34");
+        println!("MinerDesk Headless 0.7.35");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");

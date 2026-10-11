@@ -20,7 +20,9 @@ Only the Windows installer, Linux `.deb` and Linux AppImage are distributed for 
 
 Versions **0.7.24–0.7.31** could incorrectly classify an installed Windows copy as portable because the NSIS installer stores `InstallLocation` with surrounding quotes. **0.7.32** reads the 64-bit installation registry directly and removes the matching outer quotes before verifying that the running desktop belongs to that directory. See the [Tauri NSIS installer template](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.12.1/crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi#L660).
 
-If the affected version only shows **GitHub downloads**, download **MinerDesk_0.7.32_x64-setup.exe**, close MinerDesk and install it once. Then launch MinerDesk from the **Start menu**. The next newer release can be installed with **Update…** after confirmation and Windows administrator approval. A ZIP copy launched outside the registered installation still provides a download link only, so it cannot update an unrelated installed copy. Unreadable or invalid registration now has a separate explanation. No manual registry change is needed.
+Versions through **0.7.34** can also misclassify an installed x64 copy whose NSIS registration is in the 32-bit HKLM view (`WOW6432Node`). **0.7.35** checks both 32-bit and 64-bit views, including quoted locations, and verifies that one registered directory matches the running executable's canonical directory.
+
+If the affected version only shows **GitHub downloads**, download **MinerDesk_0.7.35_x64-setup.exe**, close MinerDesk and install it once. Then launch MinerDesk from the **Start menu**. The next newer release can be installed with **Update…** after confirmation and Windows administrator approval. A ZIP copy launched outside the registered installation still provides a download link only, so it cannot update an unrelated installed copy. Unreadable or invalid registration has a separate explanation. No manual registry change is needed.
 
 ### Linux administrator prompt troubleshooting
 
