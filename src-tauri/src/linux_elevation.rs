@@ -34,10 +34,17 @@ fn prepare_helper(helper: &Path, appimage: bool) -> Result<(PathBuf, Option<temp
     // A user's FUSE AppImage mount may deny access even to root. Copy only the
     // bundled, minimal supervisor to a fresh private directory on the host.
     // Never relax FUSE permissions or install a persistent privileged helper.
-    let directory = tempfile::Builder::new().prefix("minerdesk-elevation-").tempdir().map_err(|e|e.to_string())?;
+    // Ignore TMPDIR: AppImage/WSL can point it at a FUSE or Windows filesystem
+    // that is inaccessible to root or cannot enforce private Unix permissions.
+    let directory = tempfile::Builder::new().prefix("minerdesk-elevation-")
+        .permissions(std::fs::Permissions::from_mode(0o700)).tempdir_in("/tmp").map_err(|e|e.to_string())?;
     let staged = directory.path().join("minerdesk-linux-helper");
     std::fs::copy(helper, &staged).map_err(|e|e.to_string())?;
     std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o700)).map_err(|e|e.to_string())?;
+    if staged.metadata().map_err(|e|e.to_string())?.permissions().mode() & 0o777 != 0o700
+        || directory.path().metadata().map_err(|e|e.to_string())?.permissions().mode() & 0o777 != 0o700 {
+        return Err("The host temporary filesystem cannot enforce private Linux helper permissions".into());
+    }
     Ok((staged, Some(directory)))
 }
 fn message(code: Option<i32>, detail: &str, french: bool) -> String {
