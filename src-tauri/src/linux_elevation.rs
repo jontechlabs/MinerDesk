@@ -28,6 +28,18 @@ pub fn helper_path() -> Option<PathBuf> {
 pub fn available() -> bool {
     helper_path().is_some() && (unsafe { libc::geteuid() } == 0 || Path::new("/usr/bin/pkexec").is_file())
 }
+
+fn prepare_helper(helper: &Path, appimage: bool) -> Result<(PathBuf, Option<tempfile::TempDir>), String> {
+    if !appimage { return Ok((helper.to_path_buf(), None)); }
+    // A user's FUSE AppImage mount may deny access even to root. Copy only the
+    // bundled, minimal supervisor to a fresh private directory on the host.
+    // Never relax FUSE permissions or install a persistent privileged helper.
+    let directory = tempfile::Builder::new().prefix("minerdesk-elevation-").tempdir().map_err(|e|e.to_string())?;
+    let staged = directory.path().join("minerdesk-linux-helper");
+    std::fs::copy(helper, &staged).map_err(|e|e.to_string())?;
+    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o700)).map_err(|e|e.to_string())?;
+    Ok((staged, Some(directory)))
+}
 fn message(code: Option<i32>, detail: &str, french: bool) -> String {
     let text = match (french,code) {
         (true,Some(126)) => "Autorisation Linux annulée : le mineur n’a pas démarré.",
@@ -42,6 +54,9 @@ fn message(code: Option<i32>, detail: &str, french: bool) -> String {
 
 pub fn spawn(path: &Path, args: &[String], french: bool) -> Result<ElevatedMiner, String> {
     let helper = helper_path().ok_or_else(|| if french { "Lanceur Linux privilégié introuvable. Réinstallez le paquet MinerDesk récent." } else { "Linux elevation helper is missing. Reinstall the current MinerDesk package." }.to_string())?;
+    // Retain the private copy until the actual miner acknowledges startup. A
+    // cancelled/expired approval removes it as well as closing the owner pipe.
+    let (helper, _helper_directory) = prepare_helper(&helper, std::env::var_os("APPDIR").is_some())?;
     let root = unsafe { libc::geteuid() } == 0;
     if !root && !Path::new("/usr/bin/pkexec").is_file() {
         return Err(if french { "pkexec est absent. Installez pkexec et un agent polkit graphique pour autoriser le mineur." } else { "pkexec is missing. Install pkexec and a graphical polkit agent to authorize the miner." }.into());
@@ -111,6 +126,19 @@ pub fn stop(child: &mut Child, control: &mut Option<ChildStdin>) -> Result<(),St
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn appimage_helper_copy_is_private_exact_and_removed_after_use() {
+        let source = tempfile::tempdir().unwrap();
+        let executable = source.path().join("bundled-helper");
+        std::fs::write(&executable, b"fixture executable bytes").unwrap();
+        let (direct, no_copy) = prepare_helper(&executable, false).unwrap();
+        assert_eq!(direct, executable); assert!(no_copy.is_none());
+        let (staged, directory) = prepare_helper(&executable, true).unwrap();
+        assert_ne!(staged, executable);
+        assert_eq!(std::fs::read(&staged).unwrap(), std::fs::read(&executable).unwrap());
+        assert_eq!(staged.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(directory.as_ref().unwrap().path().metadata().unwrap().permissions().mode() & 0o777, 0o700);
+        drop(directory); assert!(!staged.exists()); assert!(executable.exists());
+    }
     #[test] fn older_profiles_never_enable_root_and_explicit_choice_survives_reload() {
         let mut profile: super::super::MinerProfile = serde_json::from_str(r#"{"id":"existing","engine":"srbminer"}"#).unwrap();
         assert!(!profile.linux_run_as_root);

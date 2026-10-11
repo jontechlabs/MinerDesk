@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix='minerdesk-root-backend-fixture-') as di
     (configdir/'config.json').write_text(json.dumps({'miners':[profile],'schedules':[],'web':{'desktop_api_port':port,'expose_lan':False},'ui':{'language':'en'}}))
     pids=[]
     with (base/'backend.log').open('wb') as log:
-        process=subprocess.Popen([str(args.backend.resolve()),'--listen','127.0.0.1','--port',str(port)],env={**os.environ,'XDG_CONFIG_HOME':str(base),'XDG_DATA_HOME':str(base/'data')},stdout=log,stderr=subprocess.STDOUT)
+        process=subprocess.Popen([str(args.backend.resolve()),'--listen','127.0.0.1','--port',str(port)],env={**os.environ,'XDG_CONFIG_HOME':str(base),'XDG_DATA_HOME':str(base/'data'),'APPDIR':str(base/'appimage-fixture')},stdout=log,stderr=subprocess.STDOUT)
         try:
             for attempt in range(100):
                 try:health=request('/api/health');break
@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory(prefix='minerdesk-root-backend-fixture-') as di
             assert request('/api/miners/root-fixture/stop','POST')['ok'];assert not request('/api/status')[0]['runtime']['running'];wait_until(lambda:not alive(second))
             assert request('/api/miners/root-fixture/start','POST')['ok'];third=request('/api/status')[0]['runtime']['pid'];pids.append(third)
             process.kill();process.wait(timeout=5);wait_until(lambda:not alive(third))
-            print(json.dumps({'compiled_backend':'passed','root_miner_start_restart_stop':'passed','live_console':'passed','forced_backend_exit_stops_root_miner':'passed','live_GPU_mining':False}))
+            print(json.dumps({'compiled_backend':'passed','root_miner_start_restart_stop':'passed','AppImage_helper_private_copy':'passed','live_console':'passed','forced_backend_exit_stops_root_miner':'passed','live_GPU_mining':False}))
         finally:
             if process.poll() is None:process.send_signal(signal.SIGINT);process.wait(timeout=10)
             for pid in pids:
