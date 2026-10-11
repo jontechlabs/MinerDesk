@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.36
+
+- Fix the startup loading-screen regression introduced in 0.7.35: status polling can populate dashboard rows before configuration/native backend discovery completes, causing a null schedule lookup and a React render crash.
+- Read schedule membership safely during bootstrap, using the backend's optional status flag until configuration is available, then the current editable configuration. Keep mining controls disabled until the backend is connected.
+- Add whole-application startup regressions with delayed native/config responses, current and older status payloads, stale schedule flags and browser clients. Verify that successful loading dismisses the splash.
+- Preserve schedule-aware starts, explicit forced mining and both Windows installation registry views; rebuild Windows/Linux binaries and verified update signatures.
+
 ## 0.7.35
 
 - Make Start, Restart and Start all respect each profile's enabled assigned schedules: resume during an active window, otherwise wait for the next one. Clear a manual pause only after a successful command.

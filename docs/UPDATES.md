@@ -22,7 +22,11 @@ Versions **0.7.24–0.7.31** could incorrectly classify an installed Windows cop
 
 Versions through **0.7.34** can also misclassify an installed x64 copy whose NSIS registration is in the 32-bit HKLM view (`WOW6432Node`). **0.7.35** checks both 32-bit and 64-bit views, including quoted locations, and verifies that one registered directory matches the running executable's canonical directory.
 
-If the affected version only shows **GitHub downloads**, download **MinerDesk_0.7.35_x64-setup.exe**, close MinerDesk and install it once. Then launch MinerDesk from the **Start menu**. The next newer release can be installed with **Update…** after confirmation and Windows administrator approval. A ZIP copy launched outside the registered installation still provides a download link only, so it cannot update an unrelated installed copy. Unreadable or invalid registration has a separate explanation. No manual registry change is needed.
+If the affected version only shows **GitHub downloads**, download **MinerDesk_0.7.36_x64-setup.exe**, close MinerDesk and install it once. Then launch MinerDesk from the **Start menu**. The next newer release can be installed with **Update…** after confirmation and Windows administrator approval. A ZIP copy launched outside the registered installation still provides a download link only, so it cannot update an unrelated installed copy. Unreadable or invalid registration has a separate explanation. No manual registry change is needed.
+
+### Loading screen in 0.7.35
+
+Version **0.7.35** introduced a dashboard startup race: miner status can arrive before configuration, causing the interface to crash behind its loading overlay. The backend may still be healthy. **0.7.36** fixes the early schedule lookup and tests that response order across the whole application. If the loading screen prevents access to Update, install the 0.7.36 setup manually once. There is no need to delete or reset profiles, schedules or wallet settings.
 
 ### Linux administrator prompt troubleshooting
 
