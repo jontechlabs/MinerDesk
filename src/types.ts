@@ -163,7 +163,10 @@ export type GpuDiscovery = {
   engine: string;
   source: string;
   selectors_verified: boolean;
-  diagnostic_code?: "executable_required" | "executable_missing" | "launch_failed" | "timed_out" | "listing_failed" | "no_devices" | null;
+  platform?: string;
+  error_detail?: string | null;
+  os_error?: number | null;
+  diagnostic_code?: "executable_required" | "executable_missing" | "launch_failed" | "windows_access_denied" | "timed_out" | "listing_failed" | "no_devices" | null;
   devices: GpuDevice[];
   raw_excerpt: string;
   selection_hint: string;

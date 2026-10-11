@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.34
+
+- Show the exact GPU-discovery launch error directly, with backend-platform guidance instead of Linux advice on Windows.
+- Preserve native Windows error codes, including access denied (error 5), without depending on translated error text. Explain file permissions and protection-history checks without assuming an antivirus cause.
+- Preserve verified engine GPU IDs, saved selections and tuning; add a Windows quarantine/exclusion troubleshooting guide. No automatic security-policy changes or quarantine restoration.
+
 ## 0.7.33
 
 - Add optional per-profile Linux miner administrator mode, with system polkit approval. The application stays unprivileged and stores no administrator password.
