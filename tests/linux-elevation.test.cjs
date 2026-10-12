@@ -27,3 +27,18 @@ test('only elevated starts allow time for each system approval; stop never waits
  await runMiningCommand({...base,action:'start'});
  assert.deepEqual(calls.map(c=>c.timeout),[160000,160000,290000,30000,30000]);
 });
+test('unattended root approval binds the reviewed fingerprint and revocation is explicit',async()=>{
+ const originalWindow=global.window;global.window={setTimeout:fn=>setTimeout(fn,0),clearTimeout};
+ const calls=[],status={state:'required',eligible:true,message:'Authorization required',commands:['SRBMiner-MULTI --algorithm pearlhash'],source_directory:'/home/fixture/miner',fingerprint:'a'.repeat(64)};
+ let view;const props={profile:{id:'fixture',linux_run_as_root:true},platform:'linux',available:true,language:'en',onChange:()=>{},onAuthorizationAction:async(action,fingerprint)=>{calls.push({action,fingerprint});return {...status,state:action==='authorize'?'approved':'required'};}};
+ try{
+  await act(async()=>{view=create(React.createElement(Control,props));await new Promise(r=>setTimeout(r,15));});
+  let button=view.root.findAllByType('button').find(b=>b.children.join('')==='Authorize scheduled starts');assert.equal(button.props.disabled,false);
+  await act(async()=>button.props.onClick());assert.match(JSON.stringify(view.toJSON()),/stops this profile/);
+  button=view.root.findAllByType('button').find(b=>b.children.join('')==='Approve these commands with Linux');await act(async()=>button.props.onClick());
+  assert.deepEqual(calls.at(-1),{action:'authorize',fingerprint:status.fingerprint});
+  await act(async()=>view.update(React.createElement(Control,{...props,profile:{...props.profile,linux_root_authorization:{id:'b'.repeat(32),fingerprint:status.fingerprint}}})));
+  button=view.root.findAllByType('button').find(b=>b.children.join('')==='Revoke and stop this miner');await act(async()=>button.props.onClick());
+  assert.equal(calls.filter(c=>c.action==='revoke').length,1);
+ }finally{if(view)await act(async()=>view.unmount());global.window=originalWindow;}
+});

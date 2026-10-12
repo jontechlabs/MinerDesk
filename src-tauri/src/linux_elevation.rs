@@ -29,7 +29,7 @@ pub fn available() -> bool {
     helper_path().is_some() && (unsafe { libc::geteuid() } == 0 || Path::new("/usr/bin/pkexec").is_file())
 }
 
-fn prepare_helper(helper: &Path, appimage: bool) -> Result<(PathBuf, Option<tempfile::TempDir>), String> {
+pub(super) fn prepare_helper(helper: &Path, appimage: bool) -> Result<(PathBuf, Option<tempfile::TempDir>), String> {
     if !appimage { return Ok((helper.to_path_buf(), None)); }
     // A user's FUSE AppImage mount may deny access even to root. Copy only the
     // bundled, minimal supervisor to a fresh private directory on the host.
@@ -41,6 +41,12 @@ fn prepare_helper(helper: &Path, appimage: bool) -> Result<(PathBuf, Option<temp
     let staged = directory.path().join("minerdesk-linux-helper");
     std::fs::copy(helper, &staged).map_err(|e|e.to_string())?;
     std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o700)).map_err(|e|e.to_string())?;
+    let approved = helper.parent().ok_or("Missing helper directory")?.join("minerdesk-approved-helper");
+    if approved.is_file() {
+        let copy = directory.path().join("minerdesk-approved-helper");
+        std::fs::copy(approved, &copy).map_err(|e|e.to_string())?;
+        std::fs::set_permissions(copy, std::fs::Permissions::from_mode(0o700)).map_err(|e|e.to_string())?;
+    }
     if staged.metadata().map_err(|e|e.to_string())?.permissions().mode() & 0o777 != 0o700
         || directory.path().metadata().map_err(|e|e.to_string())?.permissions().mode() & 0o777 != 0o700 {
         return Err("The host temporary filesystem cannot enforce private Linux helper permissions".into());
@@ -74,6 +80,10 @@ pub fn spawn(path: &Path, args: &[String], french: bool) -> Result<ElevatedMiner
         command.arg("--disable-internal-agent").arg(&helper); command
     };
     command.args(["--application-version",env!("CARGO_PKG_VERSION"),"--miner"]).arg(&path).arg("--").args(args);
+    spawn_command(command, AUTH_TIMEOUT, french)
+}
+
+pub(super) fn spawn_command(mut command: Command, timeout: Duration, french: bool) -> Result<ElevatedMiner, String> {
     let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e|message(None,&e.to_string(),french))?;
     let control = child.stdin.take().ok_or("Linux control pipe is unavailable")?;
     let stdout = child.stdout.take().ok_or("Linux helper output is unavailable")?;
@@ -87,7 +97,7 @@ pub fn spawn(path: &Path, args: &[String], french: bool) -> Result<ElevatedMiner
         }
         let _ = sender.send((String::from_utf8_lossy(&line).into_owned(), reader));
     });
-    match receiver.recv_timeout(AUTH_TIMEOUT) {
+    match receiver.recv_timeout(timeout) {
         Ok((line, reader)) => {
             if let Some(pid) = line.trim().strip_prefix("MINERDESK_ELEVATION_READY ").and_then(|value|value.parse::<u32>().ok()).filter(|pid|*pid>0) {
                 return Ok(ElevatedMiner { child, control, stdout:Box::new(reader), stderr:Box::new(stderr), miner_pid:pid });
@@ -103,12 +113,16 @@ pub fn spawn(path: &Path, args: &[String], french: bool) -> Result<ElevatedMiner
         Err(_) => {
             // Delayed approval cannot launch a miner: the helper rejects EOF.
             drop(control); let _=cancel_launcher(&mut child);
-            Err(if french { "Délai d’autorisation Linux dépassé (120 s). Le démarrage a été annulé ; réessayez et validez la boîte de dialogue du système." } else { "Linux approval timed out after 120 seconds. The start was cancelled; retry and approve the system dialog." }.into())
+            Err(if timeout == AUTH_TIMEOUT {
+                if french { "Délai d’autorisation Linux dépassé (120 s). Le démarrage a été annulé ; réessayez et validez la boîte de dialogue du système." } else { "Linux approval timed out after 120 seconds. The start was cancelled; retry and approve the system dialog." }
+            } else {
+                if french { "Le lancement root autorisé n’a pas répondu à temps. Le démarrage a été annulé ; vérifiez et renouvelez l’autorisation du profil." } else { "The approved root launcher did not respond in time. The start was cancelled; check and renew the profile authorization." }
+            }.into())
         }
     }
 }
 
-fn cancel_launcher(child: &mut Child) -> Option<std::process::ExitStatus> {
+pub(super) fn cancel_launcher(child: &mut Child) -> Option<std::process::ExitStatus> {
     let began = Instant::now();
     let mut killed = false;
     while began.elapsed() < Duration::from_secs(6) {

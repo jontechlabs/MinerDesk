@@ -45,6 +45,13 @@ use gpu_diagnostic_error::GpuDiagnosticError;
 mod linux_terminal;
 #[cfg(target_os = "linux")]
 mod linux_elevation;
+#[cfg(target_os = "linux")]
+mod linux_authorization;
+#[cfg(target_os = "linux")]
+pub use linux_authorization::protocol::GrantRef;
+#[cfg(not(target_os = "linux"))]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GrantRef { pub id: String, pub fingerprint: String }
 #[cfg(test)]
 mod gpu_clock_tests;
 #[cfg(not(target_os = "windows"))]
@@ -445,6 +452,8 @@ pub struct MinerProfile {
     pub allow_gpu_overlap: bool,
     /// Explicit Linux-only administrator approval for this miner, off by default.
     pub linux_run_as_root: bool,
+    /// UID-bound reference to a root-owned approved command, never a password.
+    pub linux_root_authorization: Option<GrantRef>,
     /// Optional, explicit support for MinerDesk development. 0 = disabled.
     pub dev_tip_percent: f64,
 }
@@ -478,6 +487,7 @@ impl Default for MinerProfile {
             extra_args: String::new(),
             allow_gpu_overlap: false,
             linux_run_as_root: false,
+            linux_root_authorization: None,
             dev_tip_percent: 0.0,
         }
     }
@@ -697,6 +707,57 @@ impl CoreState {
         Ok(state)
     }
 
+    #[cfg(target_os = "linux")]
+    fn authorize_linux_profile(self: &Arc<Self>, id: &str, reviewed: &str) -> Result<(), String> {
+        let _approval = linux_authorization::OPERATION.try_lock().map_err(|_| "Another Linux authorization is already in progress".to_string())?;
+        let cfg = self.config();
+        let before = cfg.miners.iter().find(|p| p.id == id).cloned().ok_or("Miner profile was not found")?;
+        if !before.linux_run_as_root { return Err("Enable Run this miner as administrator (root) first".into()); }
+        let request = linux_authorization::enrollment(&before, cfg.ui.language == "fr")?;
+        if linux_authorization::protocol::request_fingerprint(&request)? != reviewed {
+            return Err("The profile changed since the command review; review and authorize again".into());
+        }
+        // Stop only this profile. Do not hold the lifecycle lock through a
+        // password dialog: other profiles must still stop at their window ends.
+        self.stop_miner_manually(id)?;
+        let grant = linux_authorization::authorize(&before, reviewed, cfg.ui.language == "fr")?;
+        let save = (|| -> Result<(), String> {
+            let _io = self.config_io.lock().map_err(|_| "Config I/O lock poisoned")?;
+            let mut current = self.config.write().map_err(|_| "Configuration lock poisoned")?;
+            let mut updated = current.clone();
+            let profile = updated.miners.iter_mut().find(|p| p.id == id).ok_or("Profile was removed during authorization")?;
+            if !profile.linux_run_as_root || linux_authorization::enrollment(profile, updated.ui.language == "fr")? != request {
+                return Err("The profile changed during authorization; review and authorize again".into());
+            }
+            profile.linux_root_authorization = Some(grant.clone());
+            self.write_config_file(&updated)?;
+            *current = updated;
+            Ok(())
+        })();
+        if save.is_err() { let _ = linux_authorization::revoke(&grant); return save; }
+        if let Some(old) = before.linux_root_authorization { let _ = linux_authorization::revoke(&old); }
+        self.record_log(id, "system", "[MinerDesk] Scheduled root starts authorized for this Linux account and approved commands. No administrator password stored. Use Start/Resume schedule to resume this occurrence.".into());
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn revoke_linux_profile(self: &Arc<Self>, id: &str) -> Result<(), String> {
+        let _approval = linux_authorization::OPERATION.try_lock().map_err(|_| "An authorization is in progress; cancel its Linux dialog before revoking".to_string())?;
+        self.stop_miner_manually(id)?;
+        let mut cfg = self.config();
+        let profile = cfg.miners.iter_mut().find(|p| p.id == id).ok_or("Miner profile was not found")?;
+        if let Some(ref grant) = profile.linux_root_authorization { linux_authorization::revoke(grant)?; }
+        // Authorization cleanup must not overwrite concurrent unrelated edits.
+        let _io = self.config_io.lock().map_err(|_| "Config I/O lock poisoned")?;
+        let mut current = self.config.write().map_err(|_| "Configuration lock poisoned")?;
+        let mut updated = current.clone();
+        let p = updated.miners.iter_mut().find(|p| p.id == id).ok_or("Miner profile was removed")?;
+        if p.linux_root_authorization == profile.linux_root_authorization { p.linux_root_authorization = None; }
+        self.write_config_file(&updated)?; *current = updated;
+        self.record_log(id,"system","[MinerDesk] Scheduled root authorization revoked; the profile was stopped.".into());
+        Ok(())
+    }
+
     fn write_config_file(&self, cfg: &AppConfig) -> Result<(), String> {
         let bytes = serde_json::to_vec_pretty(cfg).map_err(|e| e.to_string())?;
         let temporary = self.config_path.with_extension(format!("tmp-{}", Uuid::new_v4().simple()));
@@ -721,12 +782,17 @@ impl CoreState {
         self.config.read().map(|g| g.clone()).unwrap_or_default()
     }
 
-    fn replace_config(&self, cfg: AppConfig) -> Result<(), String> {
+    fn replace_config(&self, mut cfg: AppConfig) -> Result<(), String> {
         // Only local serialization/disk I/O belongs on the save critical path.
         // Previously every Start saved, then synchronously ran PowerShell once
         // per wake weekday + firewall: the browser timed out before POST /start.
         let _io = self.config_io.lock().map_err(|_| "Config I/O lock poisoned".to_string())?;
         let mut current = self.config.write().map_err(|_| "Configuration lock poisoned".to_string())?;
+        #[cfg(target_os = "linux")]
+        for profile in &mut cfg.miners {
+            profile.linux_root_authorization = current.miners.iter().find(|p|p.id == profile.id)
+                .and_then(|p|p.linux_root_authorization.clone());
+        }
         // A disk failure must leave the in-memory profile unchanged too.
         self.write_config_file(&cfg)?;
         *current = cfg.clone();
@@ -960,7 +1026,7 @@ impl CoreState {
             // before the window closed and be killed by the next scheduler tick.
             self.cancel_power_action();
         }
-        self.start_miner_mode_locked(id, started_by, false)?;
+        self.start_miner_mode_locked(id, started_by, false, true)?;
         if started_by == "manual" {
             // Force mining may explicitly take ownership of an already-running
             // scheduled session; do not leave its origin as "schedule".
@@ -991,7 +1057,7 @@ impl CoreState {
         let origin = user_start_origin(has_schedule, active.contains_key(id), false);
         if restart || origin.is_none() { self.stop_miner_locked(id)?; }
         if let Some(origin) = origin {
-            self.start_miner_mode_locked(id, origin, false)?;
+            self.start_miner_mode_locked(id, origin, false, true)?;
             self.cancel_power_action();
         }
         // An ordinary Start also returns a running forced session to the
@@ -1018,13 +1084,15 @@ impl CoreState {
     }
 
     // The caller must hold lifecycle for every start/restart/stop operation.
-    fn start_miner_mode_locked(self: &Arc<Self>, id: &str, started_by: &str, dev_tip_active: bool) -> Result<(), String> {
+    fn start_miner_mode_locked(self: &Arc<Self>, id: &str, started_by: &str, dev_tip_active: bool, interactive: bool) -> Result<(), String> {
         if self.shutting_down.load(Ordering::SeqCst) { return Err("MinerDesk is shutting down".into()); }
         self.refresh_processes();
         if self.is_running(id) { return Ok(()); }
         let cfg = self.config();
         let mut profile = cfg.miners.iter().find(|m| m.id == id).cloned().ok_or_else(|| format!("Profil introuvable: {id}"))?;
         if !profile.enabled { return Err(format!("{} est désactivé", profile.name)); }
+        #[cfg(target_os = "linux")]
+        let root_profile = profile.clone();
         if dev_tip_active {
             apply_dev_tip_wallets(&mut profile).ok_or_else(|| format!("Dev tip indisponible: réseau non reconnu pour {}", profile.name))?;
         }
@@ -1053,8 +1121,16 @@ impl CoreState {
         }
         #[cfg(target_os = "linux")]
         let (child, stdout, stderr, control, pid) = if profile.linux_run_as_root {
-            self.record_log(id, "system", "[MinerDesk] Awaiting Linux administrator approval for this miner (120 s).".into());
-            let elevated = linux_elevation::spawn(&path, &args, cfg.ui.language == "fr")?;
+            let elevated = if root_profile.linux_root_authorization.is_some() {
+                self.record_log(id,"system","[MinerDesk] Checking the approved root command; no password is stored.".into());
+                linux_authorization::spawn(&root_profile, dev_tip_active, cfg.ui.language == "fr")?
+            } else {
+                if !interactive || dev_tip_active || profile.dev_tip_percent > 0.0 {
+                    return Err(linux_authorization::needed(cfg.ui.language == "fr"));
+                }
+                self.record_log(id, "system", "[MinerDesk] Awaiting Linux administrator approval for this miner (120 s).".into());
+                linux_elevation::spawn(&path, &args, cfg.ui.language == "fr")?
+            };
             (elevated.child, elevated.stdout, elevated.stderr, Some(elevated.control), elevated.miner_pid)
         } else {
             let (child, stdout, stderr) = spawn_engine_process(&profile.engine, command)?;
@@ -1133,7 +1209,7 @@ impl CoreState {
         let result = (|| {
             self.stop_miner_locked(id)?;
             thread::sleep(Duration::from_millis(350));
-            self.start_miner_mode_locked(id, &started_by, dev_tip_active)
+            self.start_miner_mode_locked(id, &started_by, dev_tip_active, false)
         })();
         if let Ok(mut switching) = self.dev_tip_switching.lock() { switching.remove(id); }
         result
@@ -1218,7 +1294,13 @@ impl CoreState {
         }
         for id in &active {
             if !control.is_paused(id, &occurrences) && !self.is_running(id) && !self.is_dev_tip_switching(id) {
-                if let Err(e) = self.start_miner_mode_locked(id, "schedule", false) { self.record_log(id, "system", format!("[Scheduler] {e}")); }
+                if let Err(e) = self.start_miner_mode_locked(id, "schedule", false, false) {
+                    let changed = if let Ok(mut runtime) = self.runtime.lock() {
+                        let rt = runtime.entry(id.clone()).or_insert_with(|| MinerRuntimeView { id:id.clone(), ..Default::default() });
+                        let changed = rt.last_error != e; rt.last_error = e.clone(); changed
+                    } else { true };
+                    if changed { self.record_log(id, "system", format!("[Scheduler] {e}")); }
+                }
             }
         }
         let scheduled_running: Vec<String> = self.runtime.lock().map(|r| r.values()
@@ -1324,6 +1406,28 @@ mod linux_mining_console_tests {
     fn tick_at(state: &Arc<CoreState>, previous: &mut HashSet<String>, now: chrono::DateTime<Local>) {
         let _lock = state.lifecycle.lock().unwrap();
         state.scheduler_tick_locked(now, previous);
+    }
+
+    #[test]
+    fn unapproved_root_schedule_skips_without_prompt_and_exposes_one_clear_error() {
+        let dir=tempfile::tempdir().unwrap();let guard=scheduled_fixture(dir.path());let state=&guard.0;
+        state.config.write().unwrap().miners[0].linux_run_as_root=true;
+        let mut previous=HashSet::new();tick_at(state,&mut previous,schedule_time(10,0));
+        assert!(state.children.lock().unwrap().is_empty());
+        assert!(state.runtime.lock().unwrap()["fixture"].last_error.contains("Root authorization required"));
+        let count=state.logs_for("fixture",300).len();tick_at(state,&mut previous,schedule_time(10,1));
+        assert_eq!(state.logs_for("fixture",300).len(),count,"same missing approval should not flood the console");
+    }
+
+    #[test]
+    fn ordinary_config_saves_cannot_mint_or_restore_root_authorizations() {
+        let dir=tempfile::tempdir().unwrap();let guard=scheduled_fixture(dir.path());let state=&guard.0;
+        let reference=GrantRef{id:"a".repeat(32),fingerprint:"b".repeat(64)};
+        let mut client=state.config();client.miners[0].linux_root_authorization=Some(reference.clone());
+        state.replace_config(client).unwrap();assert!(state.config().miners[0].linux_root_authorization.is_none());
+        state.config.write().unwrap().miners[0].linux_root_authorization=Some(reference.clone());
+        let mut stale=state.config();stale.miners[0].linux_root_authorization=None;
+        state.replace_config(stale).unwrap();assert_eq!(state.config().miners[0].linux_root_authorization,Some(reference));
     }
 
     #[test]
@@ -2861,7 +2965,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.36")
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.37")
         .connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(120))
         .build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
@@ -3108,7 +3212,7 @@ async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Re
             #[cfg(not(target_os = "linux"))]
             { false }
         },
-        version: "0.7.36",
+        version: "0.7.37",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -3139,6 +3243,65 @@ async fn api_put_config(AxumState(s): AxumState<WebState>, headers: HeaderMap, J
 }
 async fn api_status(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; } Json(s.core.statuses()).into_response()
+}
+#[derive(Deserialize)]
+struct RootAuthorizationAction { action: String, profile: Option<MinerProfile>, expected_fingerprint: Option<String> }
+fn root_authorization_origin(headers: &HeaderMap, port: u16) -> bool {
+    let Some(origin) = headers.get(header::ORIGIN) else { return true; };
+    let Ok(origin) = origin.to_str() else { return false; };
+    if matches!(origin, "tauri://localhost" | "http://tauri.localhost" | "https://tauri.localhost") { return true; }
+    let Ok(url) = reqwest::Url::parse(origin) else { return false; };
+    matches!(url.scheme(),"http"|"https") && matches!(url.host_str(),Some("127.0.0.1"|"localhost"|"[::1]"|"::1"))
+        && (url.port_or_known_default() == Some(port)
+            || headers.get(header::HOST).and_then(|h|h.to_str().ok())
+                .and_then(|host|reqwest::Url::parse(&format!("http://{host}")).ok())
+                .is_some_and(|address|address.host_str()==url.host_str() && address.port_or_known_default()==url.port_or_known_default())
+            || (cfg!(debug_assertions) && url.port_or_known_default() == Some(1420)))
+}
+async fn api_root_authorization(
+    AxumPath(id): AxumPath<String>, AxumState(s): AxumState<WebState>, headers: HeaderMap,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>, Json(action): Json<RootAuthorizationAction>,
+) -> Response {
+    if let Err(r) = api_auth(&headers, &s) { return r; }
+    // A LAN request or spoofed forwarding header must never enroll privileges.
+    if action.action != "status" && (!peer.ip().is_loopback() || !root_authorization_origin(&headers,s.core.config().web.desktop_api_port)) {
+        return (StatusCode::FORBIDDEN, Json(json!({"error":"Authorize or revoke root access from MinerDesk on the Linux PC"}))).into_response();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let core = Arc::clone(&s.core);
+        return match tokio::task::spawn_blocking(move || -> Result<linux_authorization::AuthorizationStatus,String> {
+            match action.action.as_str() {
+                "authorize" => core.authorize_linux_profile(&id, action.expected_fingerprint.as_deref().ok_or("Review the commands before authorizing")?)?,
+                "revoke" => core.revoke_linux_profile(&id)?,
+                "status" => {},
+                _ => return Err("Unknown authorization action".into()),
+            }
+            let cfg = core.config();
+            let profile = if action.action == "status" { action.profile.filter(|p|p.id == id) } else {None}
+                .or_else(||cfg.miners.iter().find(|p|p.id == id).cloned()).ok_or("Miner profile was not found")?;
+            Ok(linux_authorization::status(&profile, cfg.ui.language == "fr"))
+        }).await {
+            Ok(Ok(status)) => Json(status).into_response(),
+            Ok(Err(error)) => (StatusCode::BAD_REQUEST,Json(json!({"error":error}))).into_response(),
+            Err(error) => (StatusCode::INTERNAL_SERVER_ERROR,Json(json!({"error":error.to_string()}))).into_response(),
+        };
+    }
+    #[cfg(not(target_os = "linux"))]
+    { let _ = (id, action.profile); (StatusCode::BAD_REQUEST,Json(json!({"error":"Root authorization is only available on Linux"}))).into_response() }
+}
+#[cfg(test)]
+mod root_authorization_origin_tests {
+    use super::*;
+    #[test] fn external_websites_and_unrelated_local_origins_cannot_enroll_root_access() {
+        let mut headers=HeaderMap::new();
+        for origin in ["https://example.com","http://127.0.0.1:17889","null","http://localhost.attacker.invalid:17888"] {
+            headers.insert(header::ORIGIN,origin.parse().unwrap()); assert!(!root_authorization_origin(&headers,17888));
+        }
+        for origin in ["http://127.0.0.1:17888","http://localhost:17888","tauri://localhost"] {
+            headers.insert(header::ORIGIN,origin.parse().unwrap()); assert!(root_authorization_origin(&headers,17888));
+        }
+    }
 }
 async fn api_logs(AxumPath(id): AxumPath<String>, Query(q): Query<LogsQuery>, AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Response {
     if let Err(r) = api_auth(&headers, &s) { return r; } Json(s.core.logs_for(&id, q.limit.unwrap_or(300))).into_response()
@@ -3522,6 +3685,7 @@ async fn serve_bound_web(core: Arc<CoreState>, listener: tokio::net::TcpListener
         .route("/api/miners/:id/restart", post(api_restart))
         .route("/api/miners/:id/logs", get(api_logs))
         .route("/api/miners/:id/gpus", get(api_gpus))
+        .route("/api/miners/:id/root-authorization", post(api_root_authorization))
         .route("/api/gpus/discover", post(api_discover_gpus))
         .route("/api/engines/:engine/download", post(api_download_engine))
         .route("/api/power/peek", get(api_power_peek))
@@ -4473,7 +4637,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.36", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.37", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -4512,7 +4676,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.36 starting ({})",
+        "{} 0.7.37 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -4543,7 +4707,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.36");
+        println!("MinerDesk Headless 0.7.37");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");
