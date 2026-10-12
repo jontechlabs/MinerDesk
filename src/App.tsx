@@ -15,12 +15,12 @@ import { BulkStartError, runMiningCommand, type MiningAction } from "./minerComm
 import { dayNames, languageDirection, LANGUAGES, tr } from "./i18n";
 import type {
   AppConfig, BackendStatus, EngineSpec, GpuDiscovery, GpuTuning, Health, InstallResult, LogLine,
-  MinerProfile, MinerStatus, PendingPowerAction, ScheduleWindow, SecurityStatus
+  LinuxAuthorizationStatus, MinerProfile, MinerStatus, PendingPowerAction, ScheduleWindow, SecurityStatus
 } from "./types";
 
 type Tab = "dashboard" | "miners" | "schedules" | "console" | "settings";
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
-const DESKTOP_VERSION = "0.7.36";
+const DESKTOP_VERSION = "0.7.37";
 
 function resolveApiBase() {
   // Important: Tauri 2 uses an HTTP(S)-looking origin such as
@@ -538,7 +538,7 @@ export default function App() {
     setCommandError("");
     try {
       const elevatedStarts = health?.platform === "linux" && (action === "start" || action === "force-start" || action === "restart" || action === "start-all")
-        ? (config?.miners.filter(m => m.enabled && m.linux_run_as_root && (action === "start-all" || m.id === id)).length || 0) : 0;
+        ? (config?.miners.filter(m => m.enabled && m.linux_run_as_root && !m.linux_root_authorization && (action === "start-all" || m.id === id)).length || 0) : 0;
       const outcome = await runMiningCommand({
         elevatedStarts,
         action, id, dirty, token, request: api,
@@ -563,6 +563,30 @@ export default function App() {
   }
   async function minerAction(id: string, action: "start"|"stop"|"restart"|"force-start") {
     await performMiningAction(action, id);
+  }
+  async function rootAuthorizationAction(profile: MinerProfile, action: "status" | "authorize" | "revoke", fingerprint?: string): Promise<LinuxAuthorizationStatus> {
+    if (action === "status") return api<LinuxAuthorizationStatus>(`/api/miners/${encodeURIComponent(profile.id)}/root-authorization`, {
+      method: "POST", body: JSON.stringify({action, profile}),
+    }, token, 30000);
+    setBusy(true); setCommandError("");
+    try {
+      if (dirty) await saveConfig(config, false);
+      const result = await api<LinuxAuthorizationStatus>(`/api/miners/${encodeURIComponent(profile.id)}/root-authorization`, {
+        method: "POST", body: JSON.stringify({action, expected_fingerprint: fingerprint}),
+      }, token, action === "authorize" ? 160000 : 30000);
+      const current = await api<AppConfig>("/api/config", {}, token);
+      // Preserve any edits made during approval, but update the server-owned
+      // authorization reference so a later save cannot resurrect a stale grant.
+      setConfig(previous => {
+        if (!previous) return current;
+        const server = current.miners.find(p => p.id === profile.id);
+        const next = {...previous, miners: previous.miners.map(p => p.id === profile.id ? {...p, linux_root_authorization: server?.linux_root_authorization || null} : p)};
+        configRef.current = next; return next;
+      });
+      setStatusText(action === "authorize" ? (language === "fr" ? "Autorisation enregistrée. Utilisez Start pour reprendre ce créneau ; les prochains départs seront automatiques." : "Authorization saved. Use Start to resume this window; future starts are automatic.") : (language === "fr" ? "Autorisation révoquée ; ce mineur a été arrêté." : "Authorization revoked; this miner was stopped."));
+      void api<MinerStatus[]>("/api/status", {}, token).then(setStatuses).catch(() => undefined);
+      return result;
+    } finally { setBusy(false); }
   }
   async function allAction(action: "start-all"|"stop-all") {
     await performMiningAction(action);
@@ -606,7 +630,7 @@ export default function App() {
     setSelectedMiner(m.id); setDirty(true); setTab("miners");
   }
   function duplicateMiner(m: MinerProfile) {
-    if (!config) return; const n={...m,id:uid("miner"),name:`${m.name} copy`,enabled:false,gpu_tuning:[...(m.gpu_tuning||[])]};
+    if (!config) return; const n={...m,id:uid("miner"),name:`${m.name} copy`,enabled:false,linux_root_authorization:null,gpu_tuning:[...(m.gpu_tuning||[])]};
     setConfig({...config,miners:[...config.miners,n]});setSelectedMiner(n.id);setDirty(true);
   }
   function removeMiner(id: string) {
@@ -629,7 +653,7 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.36 · multi-miner</span></div></div>
+      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.37 · multi-miner</span></div></div>
       <nav>{(["dashboard","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot"/>{t(x)}</button>)}</nav>
       <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {t("activeMiners").toUpperCase()}</div><div className={`status-pill ${backendStatus?.reachable?"on":"off"}`}><span/>{backendStatus?.reachable?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>
@@ -674,7 +698,7 @@ export default function App() {
           </div>
 
           <GpuTuningPanel profile={selected} devices={gpuSelectionDevices} language={language} onGpuChange={(selector,patch)=>mutateGpuTuning(selected,selector,patch)} onProfileChange={patch=>mutateMiner(selected.id,patch)}/>
-          <LinuxElevationControl profile={selected} platform={health?.platform} available={health?.linux_elevation_available} language={language} onChange={patch=>mutateMiner(selected.id,patch)}/>
+          <LinuxElevationControl profile={selected} platform={health?.platform} available={health?.linux_elevation_available} language={language} local={isTauri || ["localhost","127.0.0.1","[::1]","::1"].includes(location.hostname)} onChange={patch=>mutateMiner(selected.id,patch)} onAuthorizationAction={(action, fingerprint)=>rootAuthorizationAction(selected,action,fingerprint)}/>
           <div className="form-grid three"><NumField label={t("minerApiPort")} value={selected.api_port} onChange={v=>mutateMiner(selected.id,{api_port:v})}/><label className="check field-check"><input type="checkbox" checked={selected.disable_cpu} onChange={e=>mutateMiner(selected.id,{disable_cpu:e.target.checked})}/> {t("disableCpu")}</label></div><label className="check"><input type="checkbox" checked={selected.allow_gpu_overlap} onChange={e=>mutateMiner(selected.id,{allow_gpu_overlap:e.target.checked})}/> {t("gpuOverlap")}</label>
           <div className="section-title">{t("advancedArgs")}</div><textarea value={selected.extra_args} onChange={e=>mutateMiner(selected.id,{extra_args:e.target.value})} placeholder={t("advancedPlaceholder")}/>
         </div>}

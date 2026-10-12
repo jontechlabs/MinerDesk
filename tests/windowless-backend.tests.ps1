@@ -25,7 +25,7 @@ Assert-MdWindowlessTest ($library.Contains('fn focus_main_window(app: tauri::App
 Assert-MdWindowlessTest ($library.Contains('start_power_action_focus_watch') -and $library.Contains('/api/power/peek') -and $library.Contains('It deliberately does NOT mark the')) 'Native Rust watcher raises hidden Desktop without falsely renewing the confirmation UI lease'
 $appSource = Get-Content -LiteralPath (Join-Path $root 'src\App.tsx') -Raw
 Assert-MdWindowlessTest ($appSource.Contains('(!isTauri && document.visibilityState !== "visible")') -and $appSource.Contains('invoke("focus_main_window")')) 'Native Desktop keeps power polling while hidden and raises the confirmation modal'
-Assert-MdWindowlessTest ($library.Contains('self.start_miner_mode_locked(id, started_by, false)?;') -and -not $library.Contains('let origin = if started_by == "manual"')) 'Explicit force command remains user-owned instead of becoming schedule-owned'
+Assert-MdWindowlessTest ($library.Contains('self.start_miner_mode_locked(id, started_by, false, true)?;') -and -not $library.Contains('let origin = if started_by == "manual"')) 'Explicit force command remains user-owned instead of becoming schedule-owned'
 $config = Get-Content -LiteralPath (Join-Path $root 'src-tauri\tauri.windows.conf.json') -Raw | ConvertFrom-Json
 Assert-MdWindowlessTest ($config.bundle.resources -contains 'resources/minerdesk-backend.exe' -and $config.bundle.resources -contains 'resources/minerdesk-headless.exe') 'Installer bundles both backend and standalone CLI'
 $hooks = Get-Content -LiteralPath (Join-Path $root 'src-tauri\windows\hooks.nsh') -Raw

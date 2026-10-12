@@ -23,7 +23,7 @@ destination="publish/linux-x64"
 mkdir -p "$destination"
 stage="$(mktemp -d publish/.linux-staging-XXXXXX)"
 trap 'rm -rf -- "$stage"' EXIT
-cp "$target/release/minerdesk" "$target/release/minerdesk-headless" src-tauri/resources/minerdesk-linux-helper "$stage/"
+cp "$target/release/minerdesk" "$target/release/minerdesk-headless" src-tauri/resources/minerdesk-linux-helper src-tauri/resources/minerdesk-approved-helper "$stage/"
 IFS=',' read -r -a formats <<< "$bundles"
 for format in "${formats[@]}"; do
   extension="$format"

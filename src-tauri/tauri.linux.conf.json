@@ -4,7 +4,8 @@
     "beforeBuildCommand": "npm run build && node scripts/prepare-linux-helper.mjs --release"
   },
   "bundle": {
-    "resources": ["resources/minerdesk-linux-helper"],
+    "linux": { "deb": { "postRemoveScript": "linux-helper/postrm.sh" } },
+    "resources": ["resources/minerdesk-linux-helper", "resources/minerdesk-approved-helper"],
     "targets": [
       "deb",
       "appimage"

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.37
+
+- Add reviewed per-profile Linux authorization for unattended root starts. Store UID-bound command approvals and protected miner copies, never an administrator password.
+- Bind approval to the reviewed command/file fingerprint. Require enrollment again after changes or updates; reject arbitrary launch arguments and unsafe source files.
+- Skip unapproved scheduled/automatic root starts with a visible, deduplicated error; retain interactive root approval for manual starts.
+- Add local-only revoke-and-stop controls, protected supervisor revocation checks and Debian uninstall cleanup. Package both matching Linux helpers.
+- Validate privilege boundaries and root-process revocation using disposable fixtures. Windows mining behavior remains unchanged.
+
 ## 0.7.36
 
 - Fix the startup loading-screen regression introduced in 0.7.35: status polling can populate dashboard rows before configuration/native backend discovery completes, causing a null schedule lookup and a React render crash.

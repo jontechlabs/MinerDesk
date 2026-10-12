@@ -1,15 +1,30 @@
 [package]
 name = "minerdesk-linux-helper"
-version = "0.7.36"
+version = "0.7.37"
 edition = "2021"
 publish = false
 
 [dependencies]
 libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
 
 [[bin]]
 name = "minerdesk-linux-helper"
 path = "main.rs"
+
+[[bin]]
+name = "minerdesk-approved-helper"
+path = "approved.rs"
+
+[[test]]
+name = "root-fixtures"
+path = "tests/root-fixtures.rs"
+harness = false
 
 [profile.release]
 strip = true

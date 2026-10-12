@@ -11,7 +11,8 @@ test('shared and Linux configuration do not inherit Windows resources or install
   }
   assert.deepEqual(linux.bundle.targets, ['deb', 'appimage']);
   assert.equal(base.bundle.resources, undefined);
-  assert.deepEqual(linux.bundle.resources, ['resources/minerdesk-linux-helper']);
+  assert.deepEqual(linux.bundle.resources, ['resources/minerdesk-linux-helper','resources/minerdesk-approved-helper']);
+  assert.equal(linux.bundle.linux.deb.postRemoveScript,'linux-helper/postrm.sh');
 });
 test('Windows overlay retains both executables and exact NSIS installation behavior', () => {
   const config = read('tauri.windows.conf.json');

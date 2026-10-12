@@ -38,8 +38,18 @@ export type MinerProfile = {
   extra_args: string;
   allow_gpu_overlap: boolean;
   linux_run_as_root?: boolean;
+  linux_root_authorization?: { id: string; fingerprint: string } | null;
   /** Voluntary MinerDesk developer tip as a percentage of mining time. */
   dev_tip_percent: number;
+};
+
+export type LinuxAuthorizationStatus = {
+  state: "approved" | "required";
+  eligible: boolean;
+  message: string;
+  commands: string[];
+  source_directory: string;
+  fingerprint: string | null;
 };
 
 export type ScheduleWindow = {

@@ -79,6 +79,23 @@ jobs:
         run: |
           sudo -n python3 tests/linux-elevation-processes.py --helper publish/linux-x64/minerdesk-linux-helper
           sudo -n python3 tests/linux-elevation-backend.py --backend publish/linux-x64/minerdesk-headless
+      - name: Test root approval boundaries with disposable fixtures only
+        run: |
+          cargo test --locked --manifest-path src-tauri/linux-helper/Cargo.toml --no-run --message-format=json > /tmp/minerdesk-helper-tests.jsonl
+          python3 - <<'PY'
+          import json, pathlib, subprocess
+          root = pathlib.Path.cwd() / 'src-tauri/linux-helper/target/debug/deps'
+          executables = set()
+          for line in pathlib.Path('/tmp/minerdesk-helper-tests.jsonl').read_text().splitlines():
+              item = json.loads(line)
+              if item.get('reason') == 'compiler-artifact' and item.get('profile', {}).get('test') and item.get('executable'):
+                  path = pathlib.Path(item['executable']).resolve()
+                  assert path.parent == root.resolve()
+                  executables.add(str(path))
+          assert len(executables) == 3
+          for path in sorted(executables):
+              subprocess.run(['sudo', '-n', path, '--ignored', '--test-threads=1'], check=True)
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: linux-x64
