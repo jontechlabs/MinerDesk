@@ -5,7 +5,7 @@ export type GpuTuningField = typeof GPU_TUNING_FIELDS[number];
 
 /** Only expose options with a documented CLI mapping for this engine. */
 export function supportedGpuTuning(engine: string): readonly GpuTuningField[] {
-  if (["srbminer", "lolminer", "bzminer", "rigel"].includes(engine)) return GPU_TUNING_FIELDS;
+  if (["srbminer", "lolminer", "bzminer", "rigel", "onezerominer"].includes(engine)) return GPU_TUNING_FIELDS;
   if (engine === "npminer") return ["core_clock", "memory_clock", "power_limit"];
   if (engine === "lpminer") return ["core_clock"];
   return [];

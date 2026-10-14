@@ -16,6 +16,8 @@ When you request an engine download, MinerDesk contacts GitHub's release API and
 
 When you start or schedule a miner, the third-party executable makes connections according to its own implementation and the pool/settings you configured. Pools receive the public payout address/username, worker identifiers and shares supplied by the miner. Review that engine's license, fees and privacy behavior and the pool's policy. MinerDesk cannot promise that all third-party executables limit their own network traffic.
 
+The OneZeroMiner adapter added in 0.7.38 passes its documented `--disable-telemetry` option. Its optional monitoring API binds to loopback; leaving the profile API port blank disables it.
+
 Optional developer support is **0% by default**. If you choose a nonzero value, temporary mining sessions use the project's disclosed public receiving address on the configured pool; the saved personal payout address is preserved. The selected pool and engine process those sessions in the same manner as other mining sessions.
 
 ## Distribution and signing
