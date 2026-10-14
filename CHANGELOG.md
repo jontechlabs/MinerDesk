@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.38
+
+- Add OneZeroMiner to profile selection, engine filters and official Windows/Linux downloads.
+- Map pool/wallet/password/worker, numeric devices, shared GPU clocks/offsets, power/fan and loopback API settings. Disable optional engine telemetry.
+- Preserve existing PRL/QTC support and scoped Linux root authorization.
+- Show system GPU inventory as informational for OneZeroMiner; reject conflicting per-card tuning without guessing its device order. Include a setup guide and controlled integration checks.
+
 ## 0.7.37
 
 - Add reviewed per-profile Linux authorization for unattended root starts. Store UID-bound command approvals and protected miner copies, never an administrator password.

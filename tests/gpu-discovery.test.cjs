@@ -25,7 +25,7 @@ test('verified mixed engine listing keeps the RTX on global GPU 1', () => {
   assert.equal(gpuSelectorsUnverified(discovery,'srbminer'),false);
 });
 test('fallback selectors from other indexed engines and older responses are unverified', () => {
-  for(const engine of ['lolminer','rigel','bzminer','npminer']) {
+  for(const engine of ['lolminer','rigel','bzminer','npminer','onezerominer']) {
     assert.deepEqual(selectableGpuDevices({...system,engine},engine),[]);
   }
   const {selectors_verified,...olderBackend} = system;

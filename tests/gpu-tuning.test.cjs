@@ -41,6 +41,7 @@ test('memory clocks and signed offsets survive edits, clearing and serialization
 
 test('engine capabilities and interactive memory controls show only implemented options',async()=>{
   assert.equal(supportedGpuTuning('srbminer').length,6);
+  assert.equal(supportedGpuTuning('onezerominer').length,6);
   assert.deepEqual(supportedGpuTuning('npminer'),['core_clock','memory_clock','power_limit']);
   assert.deepEqual(supportedGpuTuning('lpminer'),['core_clock']);assert.deepEqual(supportedGpuTuning('custom'),[]);
   let current={...profile(),power_limit:180,memory_clock:null,core_offset:null,memory_offset:null},view;
@@ -61,6 +62,19 @@ test('clear all removes per-GPU and legacy tuning without changing selection or 
   const next={...p,...clearGpuTuning()};
   assert.deepEqual(next.gpu_tuning,[]);assert.equal(next.power_limit,null);assert.equal(next.core_clock,null);assert.equal(next.fan,null);
   assert.equal(next.gpu_ids,p.gpu_ids);assert.equal(next.wallet,p.wallet);
+});
+
+test('OneZeroMiner exposes editable shared defaults without guessed per-card controls',async()=>{
+  let current={...profile(),engine:'onezerominer',power_limit:160,gpu_tuning:[{selector:'0',core_clock:2300}]},view;
+  function Fixture(){const[p,set]=React.useState(current);current=p;return React.createElement(Panel,{profile:p,devices:[{selector:'0',name:'System reference only'}],language:'en',onGpuChange:()=>assert.fail('Unverified card must not expose tuning'),onProfileChange:patch=>set(old=>({...old,...patch}))});}
+  await act(async()=>{view=create(React.createElement(Fixture));});
+  const inputs=view.root.findAllByType('input');assert.equal(inputs.length,6);assert(inputs.every(input=>!input.props['aria-label'].includes('GPU 0')));
+  assert(view.root.findAllByType('details').some(details=>details.props.open));
+  const memory=inputs.find(input=>input.props['aria-label'].startsWith('GPU memory clock MHz'));
+  await act(async()=>memory.props.onChange({target:{value:'810'}}));assert.equal(current.memory_clock,810);
+  await act(async()=>view.root.findAllByType('button').find(button=>button.children.join('')==='Clear all GPU tuning').props.onClick());
+  assert.equal(current.memory_clock,null);assert.deepEqual(current.gpu_tuning,[]);assert.equal(current.wallet,profile().wallet);assert.equal(current.gpu_ids,'0');
+  await act(async()=>view.unmount());
 });
 test('power validation distinguishes watts from GPU MHz and only checks selected settings',()=>{
   const p=profile();assert.equal(invalidSrbPower(p),2100);
