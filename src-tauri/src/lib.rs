@@ -40,6 +40,7 @@ mod app_updates;
 mod external_links;
 mod mining_diagnostics;
 mod onezerominer;
+mod peakminer;
 mod gpu_diagnostic_error;
 use gpu_diagnostic_error::GpuDiagnosticError;
 #[cfg(target_os = "linux")]
@@ -1639,6 +1640,28 @@ mod linux_mining_console_tests {
     }
 
     #[test]
+    fn peakminer_fixture_preserves_arguments_metrics_and_cleared_tuning_across_restart() {
+        let dir=tempfile::tempdir().unwrap();
+        let state=fixture_state(dir.path(),"#!/bin/sh\nprintf '%s\\n' \"$@\"\nprintf 'Total speed: 78 TH/s 160 W 65 C\\n'\nexec sleep 30\n");
+        {
+            let mut config=state.config.write().unwrap();let p=&mut config.miners[0];
+            p.engine="peakminer".into();p.algorithm="pearlhash".into();p.worker="Rig with spaces".into();p.gpu_ids="01:00.0".into();p.memory_clock=Some(810);p.api_port=None;
+        }
+        state.start_miner("fixture","manual").unwrap();
+        wait_until(||state.runtime.lock().unwrap()["fixture"].metrics.hashrate_hps==Some(78e12));
+        let logs=state.logs_for("fixture",100);
+        for arg in ["--coin","pearl","--user","fixture-wallet","--worker","Rig with spaces","--devices","01:00.0","--gpu-lmem","810","--api-port","0"] {
+            assert!(logs.iter().any(|line|line.stream=="stdout"&&line.text==arg),"Missing {arg}");
+        }
+        let pid=state.runtime.lock().unwrap()["fixture"].pid.unwrap();state.stop_miner_manually("fixture").unwrap();
+        assert_eq!(unsafe{libc::kill(pid as libc::pid_t,0)},-1);
+        state.config.write().unwrap().miners[0].memory_clock=None;
+        state.start_miner("fixture","manual").unwrap();
+        let logs=state.logs_for("fixture",100);let command=logs.iter().rev().find(|line|line.stream=="system"&&line.text.starts_with("[MinerDesk] [USER]")).unwrap();
+        assert!(!command.text.contains("--gpu-lmem"));state.stop_miner_manually("fixture").unwrap();assert!(state.children.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn live_terminal_output_updates_metrics_and_stops_and_restarts_normally() {
         let dir = tempfile::tempdir().unwrap();
         let state = fixture_state(dir.path(), "#!/bin/sh\n[ -t 1 ] && [ -t 2 ] || exit 1\nprintf '\\033[32mTotal speed: 78 TH/s\\033[0m\\n'\nexec sleep 30\n");
@@ -1758,6 +1781,7 @@ fn engine_specs() -> Vec<EngineSpec> {
         EngineSpec { id: "lpminer", name: "lpminer", github_repo: Some("BaikalMine-Pools/pearl-miner"), auto_download: true },
         EngineSpec { id: "npminer", name: "NPMiner", github_repo: Some("nushypool/npminer"), auto_download: true },
         EngineSpec { id: "onezerominer", name: "OneZeroMiner", github_repo: Some("OneZeroMiner/onezerominer"), auto_download: true },
+        EngineSpec { id: "peakminer", name: "PeakMiner", github_repo: Some("peakminer/peakminer"), auto_download: true },
         EngineSpec { id: "custom", name: "Mineur personnalisé", github_repo: None, auto_download: false },
     ]
 }
@@ -1780,6 +1804,7 @@ fn engine_gpu_hint(engine: &str) -> &'static str {
         "bzminer" => "BzMiner: --enable 1:0 3:0 (identifiants PCI passés comme arguments séparés)",
         "npminer" => "NPMiner: --devices 0,1,2 (Index de --list-gpus, pas le Bus ID)",
         "onezerominer" => "OneZeroMiner: --devices 0,1,2. Confirm IDs in the miner console; system adapter indices are informational. Leave All GPUs selected if unsure.",
+        "peakminer" => "PeakMiner: --devices 0,1 or PCI addresses 01:00.0,0000:03:00.0 (do not mix forms). Confirm IDs in the miner console; system indices are informational. Leave All GPUs selected if unsure.",
         "lpminer" => "lpminer: détection GPU via le système; Core clock est transmis avec --lock-core-clock. La sélection GPU reste à configurer via Arguments avancés si nécessaire.",
         _ => "Mineur personnalisé: les GPU sélectionnés sont conservés dans le profil; utilisez Arguments avancés si nécessaire.",
     }
@@ -2386,6 +2411,7 @@ fn is_quantus_address(wallet: &str) -> bool {
 }
 
 fn detected_coin_id(p: &MinerProfile) -> Option<&'static str> {
+    if p.engine == "peakminer" { return peakminer::support_coin(&p.algorithm); }
     let wallet = p.wallet.trim().to_ascii_lowercase();
     let algo = p.algorithm.trim().to_ascii_lowercase();
     let pool = p.pool.trim().to_ascii_lowercase();
@@ -2427,7 +2453,7 @@ fn apply_dev_tip_wallets(p: &mut MinerProfile) -> Option<&'static str> {
     if p.engine.eq_ignore_ascii_case("custom") { return None; }
     let coin = detected_coin_id(p)?;
     let address = dev_wallet_for_coin(coin)?;
-    p.wallet = if coin == "QTC" {
+    p.wallet = if coin == "QTC" || (p.engine == "peakminer" && coin == "PRL") {
         // Pool logins may embed a worker after the public receiving address.
         // Preserve it on the temporary clone, including Kryptex's /worker form.
         let suffix = p.wallet.trim().find(['/', '.']).map(|i| &p.wallet.trim()[i..]).unwrap_or("");
@@ -2676,7 +2702,7 @@ fn append_extended_gpu_tuning(p: &MinerProfile, selected: &[String], args: &mut 
 
 fn build_engine_args_with_language(p: &MinerProfile, french: bool) -> Result<Vec<String>, String> {
     if ["srbminer","npminer","bzminer"].contains(&p.engine.as_str()) { mining_diagnostics::validate_gpu_selection(p,french)?; }
-    if ["srbminer","lolminer","bzminer","rigel","onezerominer"].contains(&p.engine.as_str()) {
+    if ["srbminer","lolminer","bzminer","rigel","onezerominer","peakminer"].contains(&p.engine.as_str()) {
         let selected=gpu_tokens(&p.gpu_ids);
         let fans=if selected.is_empty() { vec![p.fan] } else { selected.iter().map(|id|effective_fan(p,id)).collect() };
         if fans.into_iter().flatten().any(|v|v>100) {
@@ -2819,6 +2845,7 @@ fn build_engine_args_with_language(p: &MinerProfile, french: bool) -> Result<Vec
             a
         }
         "onezerominer" => onezerominer::build_args(p,wallet,french)?,
+        "peakminer" => peakminer::build_args(p,wallet,french)?,
         "custom" => vec![],
         x => return Err(format!("Unknown miner engine: {x}")),
     };
@@ -2896,7 +2923,7 @@ mod regression_tests_079 {
 #[derive(Debug, Deserialize)]
 struct GithubRelease { tag_name: String, body: Option<String>, assets: Vec<GithubAsset> }
 #[derive(Debug, Deserialize)]
-struct GithubAsset { name: String, browser_download_url: String }
+struct GithubAsset { name: String, browser_download_url: String, #[serde(default)] digest: Option<String> }
 #[derive(Debug, Serialize)]
 pub struct InstallResult { engine: String, version: String, executable_path: String, asset_name: String, checksum_verified: bool }
 
@@ -2923,6 +2950,7 @@ fn engine_executable_names(engine: &str) -> Vec<&'static str> {
         "lpminer" => if win { vec!["lpminer.exe", "pearl-miner.exe"] } else { vec!["lpminer", "pearl-miner"] },
         "npminer" => if win { vec!["npminer.exe"] } else { vec!["npminer"] },
         "onezerominer" => if win { vec!["onezerominer.exe"] } else { vec!["onezerominer"] },
+        "peakminer" => if win { vec!["peakminer.exe"] } else { vec!["peakminer"] },
         _ => vec![],
     }
 }
@@ -2941,6 +2969,7 @@ fn asset_matches(engine: &str, name: &str) -> bool {
             // NPMiner publishes its Windows archive as .tar.gz.
             "npminer" => is_tar && n.contains("npminer-windows-x86_64") && !n.contains("hive") && !n.contains("mmpos"),
             "onezerominer" => is_zip && n.strip_prefix("onezerominer-win64-").is_some_and(|version|version.starts_with(|c:char|c.is_ascii_digit())),
+            "peakminer" => Regex::new(r"^peakminer-\d+\.\d+\.\d+-windows-x86_64\.zip$").unwrap().is_match(&n),
             _ => false,
         }
     } else {
@@ -2953,6 +2982,7 @@ fn asset_matches(engine: &str, name: &str) -> bool {
             "lpminer" => n.contains("lpminer"),
             "npminer" => (n.contains("npminer-linux-x86_64") || n.contains("npminer-linux-ubuntu20-x86_64")) && !n.contains("hive") && !n.contains("mmpos"),
             "onezerominer" => n.strip_prefix("onezerominer-linux-").is_some_and(|version|version.starts_with(|c:char|c.is_ascii_digit())),
+            "peakminer" => Regex::new(r"^peakminer-\d+\.\d+\.\d+\.tar\.gz$").unwrap().is_match(&n),
             _ => false,
         }
     }
@@ -2993,7 +3023,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.38")
+    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.39")
         .connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(120))
         .build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
@@ -3003,6 +3033,10 @@ async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let bytes = client.get(&asset.browser_download_url).send().await.map_err(|e| format!("Téléchargement: {e}"))?
         .error_for_status().map_err(|e| format!("Téléchargement: {e}"))?.bytes().await.map_err(|e| format!("Téléchargement: {e}"))?;
     let mut checksum_verified = false;
+    if engine == "peakminer" {
+        peakminer::verify_download(asset,bytes.as_ref())?;
+        checksum_verified = true;
+    }
     if engine == "srbminer" {
         if let Some(expected) = release.body.as_deref().and_then(|b| expected_md5(b, &asset.name)) {
             let actual = format!("{:x}", md5::compute(bytes.as_ref()));
@@ -3240,7 +3274,7 @@ async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Re
             #[cfg(not(target_os = "linux"))]
             { false }
         },
-        version: "0.7.38",
+        version: "0.7.39",
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         miner_crash_guard: {
@@ -4665,7 +4699,7 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.38", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version = "0.7.39", about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
@@ -4704,7 +4738,7 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.38 starting ({})",
+        "{} 0.7.39 starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
@@ -4735,7 +4769,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.38");
+        println!("MinerDesk Headless 0.7.39");
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");

@@ -5,6 +5,11 @@ export function detectDevCoin(p: MinerProfile): string | null {
   const wallet = (p.wallet || "").trim().toLowerCase();
   const algo = (p.algorithm || "").trim().toLowerCase();
   const pool = (p.pool || "").trim().toLowerCase();
+  if (p.engine === "peakminer") {
+    if (["pearl", "pearlhash", "prl"].includes(algo)) return "PRL";
+    if (["quantus", "qtc", "quan"].includes(algo)) return "QTC";
+    return null;
+  }
   // Quantus SS58 uses network prefix 189 (qz...). Poseidon2 alone is not
   // a network identifier, so only a Quantus algorithm, pool or address matches.
   if (algo === "quantus" || pool.includes("quantus") || pool.split(/[/:.]/).includes("qtc") || /^qz[1-9A-HJ-NP-Za-km-z]{47}$/.test(receivingAddress)) return "QTC";

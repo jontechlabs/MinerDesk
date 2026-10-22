@@ -33,15 +33,15 @@ Open [the latest release](https://github.com/jontechlabs/MinerDesk/releases/late
 
 | Platform | Asset | Use |
 | --- | --- | --- |
-| Windows 10/11 x64 | `MinerDesk_0.7.38_x64-setup.exe` | Recommended desktop installation, including both backends. |
-| Windows x64 | `MinerDesk_0.7.38_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
-| Debian-compatible Linux x64 | `MinerDesk_0.7.38_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.38_amd64.deb`. |
-| Linux x64 | `MinerDesk_0.7.38_amd64.AppImage` | Application image; make executable before launching. |
-| Linux x64 | `MinerDesk_0.7.38_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
+| Windows 10/11 x64 | `MinerDesk_0.7.39_x64-setup.exe` | Recommended desktop installation, including both backends. |
+| Windows x64 | `MinerDesk_0.7.39_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
+| Debian-compatible Linux x64 | `MinerDesk_0.7.39_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.39_amd64.deb`. |
+| Linux x64 | `MinerDesk_0.7.39_amd64.AppImage` | Application image; make executable before launching. |
+| Linux x64 | `MinerDesk_0.7.39_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
 
 Verify downloads against `SHA256SUMS.txt` in the release. Windows builds remain **unsigned with Authenticode**. Starting with 0.7.24, installer/AppImage/Debian updates have separate cryptographic signatures verified by the app. Linux compatibility and exact validation are recorded in the release notes. macOS and ARM packages are not provided.
 
-[Code signing policy](docs/CODE-SIGNING.md): a separate Windows signing workflow is prepared, pending provider acceptance and configuration. Current 0.7.38 downloads remain unsigned. See the [privacy policy](docs/PRIVACY.md) for local data and network activity.
+[Code signing policy](docs/CODE-SIGNING.md): a separate Windows signing workflow is prepared, pending provider acceptance and configuration. Current 0.7.39 downloads remain unsigned. See the [privacy policy](docs/PRIVACY.md) for local data and network activity.
 
 GPU detection in 0.7.25 preserves SRBMiner’s global IDs across AMD/OpenCL and NVIDIA/CUDA devices. Refresh after hardware changes and select by name/PCI address; system fallback indices are informational. [GPU selection guide](docs/GPU-SELECTION.md).
 
@@ -58,7 +58,7 @@ The optional developer tip is **0% by default**, visible and selectable per prof
 
 ## Features
 
-**Quantus (QTC):** use an SRBMiner-Multi or [OneZeroMiner](docs/ONEZEROMINER.md) profile and, from 0.7.23, optional developer support with worker preservation. See the [Quantus setup guide](docs/QUANTUS.md) and [English video tutorial](https://www.youtube.com/watch?v=cCzC8PqDtEI).
+**Quantus (QTC):** use an SRBMiner-Multi, [OneZeroMiner](docs/ONEZEROMINER.md) or [PeakMiner](docs/PEAKMINER.md) profile and, from 0.7.23, optional developer support with worker preservation. See the [Quantus setup guide](docs/QUANTUS.md) and [English video tutorial](https://www.youtube.com/watch?v=cCzC8PqDtEI).
 
 - **Multiple profiles:** independent pools, wallets, workers, GPUs, tuning, API ports and advanced arguments.
 - **Updates on your terms:** checks every 6 hours, an install confirmation, verified downloads and GitHub links for installations that need manual updates. [Update guide](docs/UPDATES.md).
@@ -82,6 +82,7 @@ Metrics are parsed from miner output. Availability and interpretation depend on 
 | lpminer / pearl-miner | [BaikalMine-Pools/pearl-miner](https://github.com/BaikalMine-Pools/pearl-miner) | Shared absolute core-clock lock |
 | NPMiner | [nushypool/npminer](https://github.com/nushypool/npminer) | GPU selection, CUDA core/memory clocks and power |
 | OneZeroMiner | [OneZeroMiner/onezerominer](https://github.com/OneZeroMiner/onezerominer) | Numeric GPU selection and shared core/memory clocks, offsets, power and fan |
+| [PeakMiner](docs/PEAKMINER.md) | [peakminer/peakminer](https://github.com/peakminer/peakminer) | Numeric/PCI GPU selection and shared core/memory locks, offsets, power and fan; verified download digest |
 | Custom executable | Supplied by you | Your executable and extra arguments |
 
 Support here means an adapter exists; it does not guarantee every engine/version/GPU/OS combination. Device detection uses engine output and system fallbacks such as `nvidia-smi`. Unsupported controls are not invented: lpminer rejects conflicting per-GPU clocks, and NPMiner does not have a fan-control adapter. Legacy profile-wide tuning remains a fallback. Stop → edit → Start builds fresh arguments from the saved profile.

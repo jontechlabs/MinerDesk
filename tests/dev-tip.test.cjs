@@ -11,6 +11,12 @@ mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
 const { detectDevCoin } = mod.exports;
 const profile = changes => ({ wallet: '', algorithm: '', pool: '', ...changes });
 
+test('PeakMiner support follows the selected coin, including aliases, without guessing from other wallets', () => {
+  for (const algorithm of ['pearlhash','pearl','PRL']) assert.equal(detectDevCoin(profile({engine:'peakminer',algorithm})), 'PRL');
+  for (const algorithm of ['quantus','QTC','QUAN']) assert.equal(detectDevCoin(profile({engine:'peakminer',algorithm})), 'QTC');
+  assert.equal(detectDevCoin(profile({engine:'peakminer',algorithm:'csd',wallet:'0x1234'})), null);
+});
+
 test('Quantus recognition handles algorithm and pool conventions', () => {
   for (const p of [profile({ algorithm: ' QUANTUS ' }), profile({ pool: 'stratum+tcp://QTC.kryptex.network:7049' }), profile({ pool: 'eu.quantus.example:1234' })]) {
     assert.equal(detectDevCoin(p), 'QTC');

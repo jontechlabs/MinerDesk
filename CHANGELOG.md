@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.39
+
+- Add PeakMiner to profiles, dashboard filters and official Windows/Linux downloads, with SHA256 verification before extraction.
+- Map coin aliases (including pearlhash → pearl), pool login/password/worker, numeric or PCI device selection, shared core/memory clocks, signed offsets, power and fan settings.
+- Bind the miner API to loopback, disable it when no port is set, and keep API write controls off. Use plain console output for dashboard metrics.
+- Preserve embedded PRL/QTC worker suffixes during optional support sessions. Limit PeakMiner support-wallet switching to these two known networks.
+- Support reviewed Linux root authorization and existing schedules. Explain unverified GPU indices and reject conflicting shared tuning rather than guessing a device order.
+- Add English/French guidance and command, download integrity, root-boundary and controlled lifecycle tests. No live GPU benchmark is claimed.
+
 ## 0.7.38
 
 - Add OneZeroMiner to profile selection, engine filters and official Windows/Linux downloads.
