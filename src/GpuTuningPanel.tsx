@@ -10,10 +10,11 @@ type Props = {profile: MinerProfile; devices: GpuDevice[]; language: string;
 export default function GpuTuningPanel({profile, devices, language, onGpuChange, onProfileChange}: Props) {
   const t = (key: string) => tr(language,key);
   const fields = supportedGpuTuning(profile.engine);
+  const sharedTuning = ["onezerominer", "peakminer"].includes(profile.engine);
   const labelKeys: Record<GpuTuningField,string> = {core_clock:"coreClock", memory_clock:"memoryClock", core_offset:"coreOffset", memory_offset:"memoryOffset", power_limit:"powerLimit", fan:"fan"};
   const selected = profile.gpu_ids.split(",").map(id => id.trim()).filter(Boolean);
   const defaultsActive = fields.some(field => profile[field] != null);
-  const defaultsLabel = t(profile.engine === "onezerominer" ? "gpuSharedDefaults" : "gpuDefaults");
+  const defaultsLabel = t(sharedTuning ? "gpuSharedDefaults" : "gpuDefaults");
   const invalid = invalidSrbPower(profile);
   const invalidField = invalidGpuTuning(profile);
   function number(field: GpuTuningField, value: number | null, label: string, change: (value: number | null) => void) {
@@ -24,17 +25,18 @@ export default function GpuTuningPanel({profile, devices, language, onGpuChange,
   }
   return <>
     <div className="per-gpu-box">
-      <div className="gpu-picker-head"><div><strong>{t(profile.engine === "onezerominer" ? "gpuTuning" : "perGpuTuning")}</strong><span>{t("gpuTuningUnits")}</span><span>{t("gpuTuningBlank")}</span></div>
+      <div className="gpu-picker-head"><div><strong>{t(sharedTuning ? "gpuTuning" : "perGpuTuning")}</strong><span>{t("gpuTuningUnits")}</span><span>{t("gpuTuningBlank")}</span></div>
         <button className="mini-btn" onClick={() => onProfileChange(clearGpuTuning())}>{t("clearGpuTuning")}</button></div>
       {profile.engine === "srbminer" && <p className="muted">{t("srbPowerHelp")}</p>}
       <p className="muted">{t(fields.length ? "gpuClockHelp" : "gpuTuningCustom")}</p>
       {profile.engine === "lpminer" && <p className="muted">{t("gpuLpShared")}</p>}
       {profile.engine === "lolminer" && <p className="muted">{t("gpuLolMemory")}</p>}
       {profile.engine === "onezerominer" && <p className="muted">{t("gpuOneZeroShared")}</p>}
+      {profile.engine === "peakminer" && <p className="muted">{t("gpuPeakShared")}</p>}
       {invalid !== null && <div className="notice danger-notice" role="alert">{t("srbPowerInvalid").replace("{value}",String(invalid))}</div>}
       {invalidField !== null && invalid === null && <div className="notice danger-notice" role="alert">{t("gpuTuningInvalid").replace("{field}",t(labelKeys[invalidField]))}</div>}
       <div className="per-gpu-table">
-        {fields.length > 0 && profile.engine !== "onezerominer" && devices.filter(device => !selected.length || selected.includes(device.selector)).map(device => {
+        {fields.length > 0 && !sharedTuning && devices.filter(device => !selected.length || selected.includes(device.selector)).map(device => {
           const values = effectiveGpuTuning(profile,device.selector);
           return <div className="gpu-tuning-card" key={device.selector}><div className="gpu-tuning-name"><strong>{device.name}</strong><small>GPU {device.selector}</small></div>
             <div className="gpu-tuning-fields">{fields.map(field => <label className="field" key={field}><span>{t(labelKeys[field])}</span>{number(field,values[field],`${t(labelKeys[field])} · GPU ${device.selector}`,value => onGpuChange(device.selector,{[field]:value}))}</label>)}</div>
@@ -42,9 +44,9 @@ export default function GpuTuningPanel({profile, devices, language, onGpuChange,
         })}
       </div>
     </div>
-    {fields.length > 0 && <details className="legacy-defaults" open={defaultsActive || profile.engine === "onezerominer"}>
+    {fields.length > 0 && <details className="legacy-defaults" open={defaultsActive || sharedTuning}>
       <summary>{defaultsLabel}{defaultsActive ? ` · ${t("gpuDefaultsActive")}` : ""}</summary>
-      <p>{t(profile.engine === "onezerominer" ? "gpuSharedDefaultsHelp" : "gpuDefaultsHelp")}</p><div className="gpu-tuning-fields">{fields.map(field => <label className="field" key={field}><span>{t(labelKeys[field])}</span>
+      <p>{t(sharedTuning ? "gpuSharedDefaultsHelp" : "gpuDefaultsHelp")}</p><div className="gpu-tuning-fields">{fields.map(field => <label className="field" key={field}><span>{t(labelKeys[field])}</span>
         {number(field,profile[field],`${t(labelKeys[field])} · ${defaultsLabel}`,value => onProfileChange({[field]:value}))}</label>)}</div>
     </details>}
   </>;

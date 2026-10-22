@@ -1,6 +1,6 @@
 import type { GpuDevice, GpuDiscovery } from "./types";
 
-const indexedEngines = new Set(["srbminer", "lolminer", "rigel", "bzminer", "npminer", "onezerominer"]);
+const indexedEngines = new Set(["srbminer", "lolminer", "rigel", "bzminer", "npminer", "onezerominer", "peakminer"]);
 
 /** System inventory indices must never be sent as another engine's selectors. */
 export function selectableGpuDevices(discovery: GpuDiscovery | null, engine: string): GpuDevice[] {

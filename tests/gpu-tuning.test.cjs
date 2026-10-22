@@ -42,6 +42,7 @@ test('memory clocks and signed offsets survive edits, clearing and serialization
 test('engine capabilities and interactive memory controls show only implemented options',async()=>{
   assert.equal(supportedGpuTuning('srbminer').length,6);
   assert.equal(supportedGpuTuning('onezerominer').length,6);
+  assert.equal(supportedGpuTuning('peakminer').length,6);
   assert.deepEqual(supportedGpuTuning('npminer'),['core_clock','memory_clock','power_limit']);
   assert.deepEqual(supportedGpuTuning('lpminer'),['core_clock']);assert.deepEqual(supportedGpuTuning('custom'),[]);
   let current={...profile(),power_limit:180,memory_clock:null,core_offset:null,memory_offset:null},view;
@@ -64,8 +65,8 @@ test('clear all removes per-GPU and legacy tuning without changing selection or 
   assert.equal(next.gpu_ids,p.gpu_ids);assert.equal(next.wallet,p.wallet);
 });
 
-test('OneZeroMiner exposes editable shared defaults without guessed per-card controls',async()=>{
-  let current={...profile(),engine:'onezerominer',power_limit:160,gpu_tuning:[{selector:'0',core_clock:2300}]},view;
+for (const engine of ['onezerominer','peakminer']) test(`${engine} exposes editable shared defaults without guessed per-card controls`,async()=>{
+  let current={...profile(),engine,power_limit:160,gpu_tuning:[{selector:'0',core_clock:2300}]},view;
   function Fixture(){const[p,set]=React.useState(current);current=p;return React.createElement(Panel,{profile:p,devices:[{selector:'0',name:'System reference only'}],language:'en',onGpuChange:()=>assert.fail('Unverified card must not expose tuning'),onProfileChange:patch=>set(old=>({...old,...patch}))});}
   await act(async()=>{view=create(React.createElement(Fixture));});
   const inputs=view.root.findAllByType('input');assert.equal(inputs.length,6);assert(inputs.every(input=>!input.props['aria-label'].includes('GPU 0')));

@@ -16,7 +16,9 @@ MinerDesk centralise les profils, le lancement, la surveillance et la planificat
 - Programmer des plages hebdomadaires, y compris à cheval sur minuit, avec veille ou hibernation facultative après le minage.
 - Suivre hashrate, puissance, température, shares et durée depuis le bureau ou un navigateur de confiance.
 - Arrêter manuellement une session planifiée sans que le planificateur la relance immédiatement.
-- Utiliser SRBMiner-Multi, lolMiner, BzMiner, Rigel, lpminer, NPMiner, [OneZeroMiner](ONEZEROMINER.md) ou un exécutable personnalisé.
+- Utiliser SRBMiner-Multi, lolMiner, BzMiner, Rigel, lpminer, NPMiner, [OneZeroMiner](ONEZEROMINER.md), [PeakMiner](PEAKMINER.md) ou un exécutable personnalisé.
+
+La version **0.7.39** ajoute PeakMiner, son téléchargement officiel vérifié par SHA-256, les profils PRL/Quantus et les réglages GPU communs. Pour PRL, utilisez `pearlhash` ou `pearl` ; consultez le [guide PeakMiner](PEAKMINER.md) pour les autres monnaies, les identifiants GPU et le mode root Linux.
 
 La version 0.7.31 ajoute la fréquence mémoire et les décalages signés du cœur et de la mémoire, avec des champs adaptés au moteur. Voir le [guide des réglages GPU](GPU-TUNING.md).
 
@@ -24,12 +26,12 @@ Les réglages disponibles dépendent du moteur et du matériel. Les statistiques
 
 ## Installation
 
-**Windows 10/11 x64 :** télécharger `MinerDesk_0.7.38_x64-setup.exe` depuis la Release. L'installeur configure le backend privilégié ; l'interface graphique reste exécutée comme utilisateur normal.
+**Windows 10/11 x64 :** télécharger `MinerDesk_0.7.39_x64-setup.exe` depuis la Release. L'installeur configure le backend privilégié ; l'interface graphique reste exécutée comme utilisateur normal.
 
 **Linux x64 compatible Debian :** télécharger le paquet `.deb`, puis :
 
 ```bash
-sudo apt install ./MinerDesk_0.7.38_amd64.deb
+sudo apt install ./MinerDesk_0.7.39_amd64.deb
 ```
 
 La signature Authenticode Windows reste en attente. Les mises à jour 0.7.24 des installateurs, AppImages et paquets Debian disposent d’une signature cryptographique vérifiée par MinerDesk. Comparez aussi leur SHA-256 au fichier `SHA256SUMS.txt` de la Release.

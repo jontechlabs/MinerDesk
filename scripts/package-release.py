@@ -91,13 +91,13 @@ def main():
         shutil.copyfile(directory / name, out / name)
     with zipfile.ZipFile(out / f'MinerDesk_{version}_windows-x64.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
         for name in records: archive.write(windows / name, name)
-        for name in ['LICENSE','SETUP-WINDOWS.md','SECURITY.md','docs/UPDATES.md','docs/QUANTUS.md']: archive.write(ROOT / name, name)
+        for name in ['LICENSE','SETUP-WINDOWS.md','SECURITY.md','docs/UPDATES.md','docs/QUANTUS.md','docs/PEAKMINER.md']: archive.write(ROOT / name, name)
     with tarfile.open(out / f'MinerDesk_{version}_linux-x64.tar.gz', 'w:gz') as archive:
         for name in ['minerdesk','minerdesk-headless','minerdesk-linux-helper','minerdesk-approved-helper']:
             entry = archive.gettarinfo(str(linux / name), arcname=name)
             entry.mode = 0o755; entry.uid = entry.gid = 0; entry.uname = entry.gname = ''
             with (linux / name).open('rb') as file: archive.addfile(entry, file)
-        for name in ['LICENSE','BUILD-LINUX.md','SECURITY.md','docs/UPDATES.md','docs/QUANTUS.md','docs/LINUX-ELEVATION.md']: archive.add(ROOT / name, arcname=name)
+        for name in ['LICENSE','BUILD-LINUX.md','SECURITY.md','docs/UPDATES.md','docs/QUANTUS.md','docs/LINUX-ELEVATION.md','docs/PEAKMINER.md']: archive.add(ROOT / name, arcname=name)
     subprocess.run(['git','archive','--format=zip','-o',str(out / f'MinerDesk_{version}_source.zip'),head],cwd=ROOT,check=True)
     pubkey = json.loads((ROOT / 'src-tauri/tauri.conf.json').read_text())['plugins']['updater']['pubkey']
     for name in [installer, appimage, deb]:

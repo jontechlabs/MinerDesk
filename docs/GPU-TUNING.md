@@ -11,6 +11,8 @@ Each GPU card shows the fields supported by the selected engine. Fixed core/memo
 | BzMiner | `--oc_lock_memory_clock` | `--oc_core_clock_offset` | `--oc_memory_clock_offset` |
 | Rigel | `--lock-mclock` | `--cclock` | `--mclock` |
 | NPMiner | `--cuda-lock-mem-clocks` | Not exposed | Not exposed |
+| OneZeroMiner (shared) | `--mclk` | `--coff` | `--moff` |
+| [PeakMiner](PEAKMINER.md) (shared) | `--gpu-lmem` | `--gpu-core` | `--gpu-mem` |
 | lpminer | Not exposed | Not exposed | Not exposed |
 
 SRBMiner's `0` suffix refers to the primary algorithm, not GPU 0. Lists follow the selected `--gpu-id` order. lolMiner/Rigel use indexed lists with their documented skip markers; BzMiner uses space-separated values. SRBMiner and NPMiner require complete tuning lists; BzMiner requires complete lists for the new memory locks and offsets. Use a value for each selected GPU or a separate profile. No guessed skip values are inserted for these options. An explicit zero is passed as requested: newer BzMiner versions may interpret a zero lock as an unlock, so a blank must never be silently filled with zero.

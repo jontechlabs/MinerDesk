@@ -87,6 +87,7 @@ pub fn validate_request(request: &Enrollment) -> Result<(), String> {
         "rigel" => "rigel",
         "npminer" => "npminer",
         "onezerominer" => "onezerominer",
+        "peakminer" => "peakminer",
         _ => return Err("Unattended root mode is unavailable for this mining engine".into()),
     };
     if request.executable.file_name().and_then(|s| s.to_str()) != Some(expected) {
@@ -352,15 +353,17 @@ mod tests {
         assert_ne!(first, request_fingerprint(&request).unwrap());
     }
     #[test]
-    fn onezerominer_requires_the_official_executable_for_root_enrollment() {
+    fn added_engines_require_the_official_executable_for_root_enrollment() {
         use std::os::unix::fs::PermissionsExt;
-        let folder=tempfile::tempdir().unwrap();let path=folder.path().join("onezerominer");
-        std::fs::write(&path,b"\x7fELFfixture").unwrap();std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o700)).unwrap();
-        let mut request=Enrollment{profile_id:"onezero".into(),profile_name:"Fixture".into(),engine:"onezerominer".into(),executable:path,
-            user_args:vec!["--algo".into(),"quantus".into()],support_args:None,support_percent:0.0};
-        assert!(request_fingerprint(&request).is_ok());
-        let renamed=folder.path().join("arbitrary-script");std::fs::rename(&request.executable,&renamed).unwrap();request.executable=renamed;
-        assert!(request_fingerprint(&request).is_err());
+        for engine in ["onezerominer","peakminer"] {
+            let folder=tempfile::tempdir().unwrap();let path=folder.path().join(engine);
+            std::fs::write(&path,b"\x7fELFfixture").unwrap();std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o700)).unwrap();
+            let mut request=Enrollment{profile_id:"engine-fixture".into(),profile_name:"Fixture".into(),engine:engine.into(),executable:path,
+                user_args:vec!["--algo".into(),"quantus".into()],support_args:None,support_percent:0.0};
+            assert!(request_fingerprint(&request).is_ok());
+            let renamed=folder.path().join("arbitrary-script");std::fs::rename(&request.executable,&renamed).unwrap();request.executable=renamed;
+            assert!(request_fingerprint(&request).is_err());
+        }
     }
     #[test]
     fn symlinks_special_files_and_parent_links_are_rejected() {
