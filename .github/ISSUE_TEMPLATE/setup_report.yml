@@ -1,0 +1,45 @@
+name: Setup and first-run feedback
+description: Tell us what worked, what you tried, or where you got stuck
+title: "[Setup]: "
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for trying MinerDesk. Reports are public and describe your experience, not certified compatibility. Omit wallets, tokens, private keys, credentials and personal paths. Use the bug form for a reproducible defect and private vulnerability reporting for security issues."
+  - type: input
+    id: platform
+    attributes:
+      label: MinerDesk version and operating system
+      placeholder: "0.7.22 / Windows 11 x64"
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: GPU and mining engine version
+      placeholder: "Your GPU model / engine name and version, or not tested"
+    validations:
+      required: true
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: How far did you get?
+      options:
+        - "Downloaded, but did not install"
+        - "Installed and opened the interface"
+        - "Started and stopped one mining profile"
+        - "Also tried a scheduled session"
+        - "Could not complete installation"
+    validations:
+      required: true
+  - type: textarea
+    id: experience
+    attributes:
+      label: What worked and where did you get stuck?
+      description: "Mention what you did not test. What was the first confusing step?"
+    validations:
+      required: true
+  - type: textarea
+    id: value
+    attributes:
+      label: Would you use it again, and why?
+      description: "Which task would you use it for? What would need to improve?"
