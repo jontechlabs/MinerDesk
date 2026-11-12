@@ -3,6 +3,7 @@
 param([switch]$RequireSignature)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
+. (Join-Path $PSScriptRoot 'windows-release-resources.ps1')
 
 function Invoke-MdBuildNative {
     param([string]$File, [string[]]$Arguments)
@@ -75,6 +76,7 @@ try {
     & (Join-Path $root 'tests\config-sync.tests.ps1')
     & (Join-Path $root 'tests\windowless-backend.tests.ps1')
     & (Join-Path $root 'tests\windows-signing.tests.ps1')
+    & (Join-Path $root 'tests\windows-release-resources.tests.ps1')
 
     $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
     $npx = (Get-Command npx.cmd -ErrorAction Stop).Source
@@ -122,6 +124,9 @@ try {
     foreach ($file in @($updateHelper, $maintenance, $maintenanceCommon)) {
         Copy-Item -LiteralPath $file -Destination (Join-Path $root ('src-tauri\resources\' + [IO.Path]::GetFileName($file))) -Force
     }
+    # Tauri rebuilds secondary binaries with its desktop features. The packaged
+    # resources remain the independently built and (when required) signed files.
+    $packagedResources = @(Get-MdWindowsReleaseResources -Root $root)
 
     $expectedName = "MinerDesk_${version}_x64-setup.exe"
     $setup = Join-Path $releaseDir "bundle\nsis\$expectedName"
@@ -136,7 +141,7 @@ try {
     Assert-MdBuiltExe $setup
     $signatures = @()
     if ($RequireSignature) {
-        foreach ($file in @($desktop, $headless, $backend, $updateHelper, $maintenance, $maintenanceCommon, $setup, $resource, (Join-Path $root 'src-tauri\resources\minerdesk-backend.exe'), (Join-Path $root 'src-tauri\resources\minerdesk-update-helper.exe'), (Join-Path $root 'src-tauri\resources\maintenance.ps1'), (Join-Path $root 'src-tauri\resources\maintenance-common.ps1'))) {
+        foreach ($file in (@($desktop, $setup) + $packagedResources)) {
             $signatures += Get-MdVerifiedSignature -Path $file -ExpectedPublisher $env:MD_SIGNING_PUBLISHER
         }
         $receipts = @(Get-Content -LiteralPath $env:MD_SIGNING_LOG | ForEach-Object { $_ | ConvertFrom-Json })
@@ -149,13 +154,7 @@ try {
     $publish = Join-Path $root 'publish\windows-x64'
     $stage = Join-Path $root ('publish\.staging-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $stage -Force | Out-Null
-    Copy-Item -LiteralPath $desktop -Destination (Join-Path $stage 'MinerDesk.exe')
-    Copy-Item -LiteralPath $headless -Destination (Join-Path $stage 'minerdesk-headless.exe')
-    Copy-Item -LiteralPath $backend -Destination (Join-Path $stage 'minerdesk-backend.exe')
-    foreach ($file in @($updateHelper, $maintenance, $maintenanceCommon)) {
-        Copy-Item -LiteralPath $file -Destination (Join-Path $stage ([IO.Path]::GetFileName($file)))
-    }
-    Copy-Item -LiteralPath $setup -Destination (Join-Path $stage $expectedName)
+    Copy-MdWindowsReleaseFiles -Desktop $desktop -Setup $setup -Resources $packagedResources -Destination $stage
     $hashes = @{}
     foreach ($file in Get-ChildItem -LiteralPath $stage -File) {
         $hashes[$file.Name] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
