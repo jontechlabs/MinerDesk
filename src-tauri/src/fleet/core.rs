@@ -45,6 +45,11 @@ impl FleetCoreBridge {
 
     fn snapshot_value(&self) -> Value {
         let cfg = self.core.config();
+        let mut updates = serde_json::to_value(self.core.fleet_updates.status()).unwrap_or(Value::Null);
+        if let Some(error) = updates.pointer("/job/error").and_then(Value::as_str) {
+            let error = redact(error, &cfg);
+            updates["job"]["error"] = json!(error);
+        }
         let now = chrono::Local::now();
         let status: Vec<Value> = self.core.statuses().into_iter().map(|s| {
             let mode = if s.runtime.running {
@@ -72,6 +77,7 @@ impl FleetCoreBridge {
             // CoreState has no cached inventory. A status poll must never launch a miner
             // (including its device-list command) or invent system-to-engine ID mappings.
             "gpu_inventory":[],"gpu_inventory_available":false,
+            "updates":updates,
         })
     }
 
@@ -270,6 +276,10 @@ impl super::FleetCore for FleetCoreBridge {
                     &cfg,
                 ))
             }
+            UpdateCheck => self.core.fleet_updates.check()
+                .and_then(|state| serde_json::to_value(state).map_err(|_| "Cannot encode update status".to_string())),
+            UpdateInstall { expected_version } => self.core.fleet_updates.install(self.core.clone(), expected_version)
+                .and_then(|state| serde_json::to_value(state).map_err(|_| "Cannot encode update status".to_string())),
         };
         // Core errors can contain full command lines, paths and pool credentials.
         result.map_err(|error| redact(&error, &self.core.config()))

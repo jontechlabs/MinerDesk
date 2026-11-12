@@ -37,6 +37,10 @@ pub enum FleetOperation {
         profile_id: String,
         limit: u16,
     },
+    UpdateCheck,
+    UpdateInstall {
+        expected_version: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,9 +119,36 @@ pub struct FleetView {
     pub rigs: Vec<RigView>,
     pub commands: Vec<CommandReceipt>,
     #[serde(default)]
+    pub coordinator_rig_id: Option<String>,
+    #[serde(default)]
+    pub rollouts: Vec<UpdateRollout>,
+    #[serde(default)]
     pub local_setup_allowed: bool,
     #[serde(default)]
     pub controller_allowed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateRolloutRequest {
+    pub rig_ids: Vec<String>,
+    pub expected_version: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateRolloutItem {
+    pub rig_id: String,
+    pub state: String,
+    pub error: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateRollout {
+    pub id: String,
+    pub expected_version: String,
+    pub state: String,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub rigs: Vec<UpdateRolloutItem>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

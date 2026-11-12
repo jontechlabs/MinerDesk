@@ -5,7 +5,7 @@ The Axum backend serves the embedded frontend and JSON API on port 17888 by defa
 | Method | Route | Purpose |
 | --- | --- | --- |
 | GET | `/api/health` | Version, backend mode, scheduler and crash-guard status |
-| GET | `/api/updates?force=false` | Cached stable-release notification; `force=true` requests a manual refresh, rate-limited to once a minute. No remote installation endpoint. |
+| GET | `/api/updates?force=false` | Cached stable-release notification; `force=true` requests a manual refresh, rate-limited to once a minute. This ordinary update banner cannot install remotely. |
 | GET | `/api/engines` | Built-in engine adapters |
 | GET / PUT | `/api/config` | Read/replace complete configuration |
 | GET | `/api/status` | Profile runtime/metrics |
@@ -41,6 +41,10 @@ The [Fleet guide](FLEET.md) describes pairing and trust. These routes belong to 
 `src-tauri/src/fleet/protocol.rs` defines the versioned command contract. Profile edits carry a profile revision; schedule edits carry a configuration revision. Paths, arbitrary arguments, passwords, system security and root enrollment are outside the Fleet command allowlist. The separate HTTPS machine protocol (normally 17889) authenticates agent and controller credentials separately, rejects browser-origin traffic and never forwards requests to the localhost API. Do not expose plain HTTP port 17888 to the public Internet.
 
 `POST /api/fleet/join` accepts `{"address":"https://coordinator:17889","key":"INVITATION"}`. From 0.8.1, an omitted or blank `name` uses the local computer name; an explicit legacy name remains supported. Runtime telemetry uses the same metrics as `/api/status`; `dev_tip_active` is optional for older peers and defaults to false.
+
+From 0.8.2, `snapshot.updates` optionally advertises update protocol 1. The local-only `/api/fleet/updates` GET and `/api/fleet/updates/{enable,disable,enroll,revoke}` POST routes manage the separate policy/system authorization; same-machine peer and Origin checks apply. Ordinary configuration PUTs cannot enable it. A typed `update_check` command refreshes eligible agents' offers. Direct `update_install` controller commands are rejected: use a confirmed rollout.
+
+`POST /api/fleet/updates/rollouts` takes `{"rig_ids":["UUID"],"expected_version":"0.8.3"}`. Paired members forward that request to the pinned coordinator. `/api/fleet/updates/rollouts/:id/cancel` cancels remaining targets only. `FleetView.coordinator_rig_id` identifies the coordinator even when `setup.rig_id` belongs to the member caller; `FleetView.rollouts` exposes bounded persisted progress. Queue acceptance is not installation success. See [Fleet updates](FLEET-UPDATES.md).
 
 The headless CLI supports `--config /absolute/path/to/instance/config.json` for an explicit configuration. Give independent instances separate configuration directories; Fleet identities and scheduler state are stored beside that file.
 

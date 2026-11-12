@@ -2,6 +2,19 @@ import type { GpuTuning, LogLine, MinerMetrics, ScheduleWindow } from "./types";
 
 export type FleetRequest = <T>(path: string, options?: RequestInit, timeoutMs?: number) => Promise<T>;
 export type FleetRootAuthorization = "not_applicable" | "not_requested" | "required" | "approval_saved_unverified";
+export type FleetUpdateStage = "queued" | "checking" | "downloading" | "verifying" | "ready" | "stopping" | "installing" | "restarting" | "completed" | "failed" | "cancelled";
+export type FleetUpdateStatus = {
+  protocol: number; current_version: string; available_version: string | null;
+  can_install: boolean; enabled: boolean; reason: string;
+  root_required?: boolean; root_enrolled?: boolean;
+  job: null | { id: string; expected_version: string; stage: FleetUpdateStage; downloaded: number; total: number | null; error: string | null };
+};
+export type FleetRolloutItem = { rig_id: string; state: "queued" | "checking" | "installing" | "waiting_for_reconnect" | "updated" | "failed" | "cancelled"; error: string | null };
+export type FleetRollout = {
+  id: string; expected_version: string;
+  state: "running" | "waiting_for_reconnect" | "failed" | "cancelled" | "completed";
+  created_at: number; updated_at: number; rigs: FleetRolloutItem[]; error: string | null;
+};
 export type FleetMiner = {
   id: string; name: string; engine: string; algorithm: string; enabled: boolean; gpu_ids: string;
   running: boolean; mode: "schedule" | "forced" | "waiting" | "manual" | "stopped";
@@ -17,6 +30,8 @@ export type FleetSnapshot = {
   status: FleetMiner[];
   gpu_inventory: { selector: string; name: string; vendor?: string; pci_bus?: string | null }[];
   gpu_inventory_available: boolean;
+  /** Absent on agents that need a first local upgrade before remote updates. */
+  updates?: FleetUpdateStatus;
 };
 export type FleetProfile = {
   id: string; revision: string; name: string; engine: string; enabled: boolean; algorithm: string;
@@ -50,7 +65,9 @@ export type FleetAction = "start" | "stop" | "restart" | "resume" | "force_start
 export type FleetOperation = { action: FleetAction; profile_id: string }
   | { action: "profile_patch"; profile_id: string; expected_revision: string; patch: FleetProfilePatch }
   | { action: "schedules_patch"; expected_revision: string; schedules: ScheduleWindow[] }
-  | { action: "logs"; profile_id: string; limit: number };
+  | { action: "logs"; profile_id: string; limit: number }
+  | { action: "update_check" }
+  | { action: "update_install"; expected_version: string };
 export type FleetReceipt = {
   id: string; rig_id: string; created_at: number; expires_at: number;
   state: "queued" | "running" | "succeeded" | "failed" | "expired";
@@ -58,6 +75,8 @@ export type FleetReceipt = {
 };
 export type FleetView = {
   setup: FleetSetup; rigs: FleetRig[]; commands: FleetReceipt[];
+  rollouts: FleetRollout[];
+  coordinator_rig_id?: string | null;
   local_setup_allowed: boolean; controller_allowed: boolean;
 };
 export type FleetInvitation = { address: string; key: string; expires_at: number; certificate_fingerprint: string };
@@ -132,6 +151,30 @@ function validReceipt(value: unknown): value is FleetReceipt {
     && (value.error === null || typeof value.error === "string");
 }
 
+/** Optional update metadata is decoded separately: a bad extension cannot make
+ * an old peer eligible for an installer or erase otherwise valid telemetry. */
+export function decodeFleetUpdateStatus(value: unknown): FleetUpdateStatus | null {
+  if (!record(value) || !finite(value.protocol) || !textFields(value, ["current_version", "reason"])
+    || !(value.available_version === null || typeof value.available_version === "string")
+    || !boolFields(value, ["can_install", "enabled"])
+    || !["root_required", "root_enrolled"].every(key => value[key] === undefined || typeof value[key] === "boolean")) return null;
+  const job = value.job;
+  if (job !== null && (!record(job) || !textFields(job, ["id", "expected_version"])
+    || !enumValue(job.stage, ["queued", "checking", "downloading", "verifying", "ready", "stopping", "installing", "restarting", "completed", "failed", "cancelled"])
+    || !nonnegative(job.downloaded) || !(job.total === null || nonnegative(job.total))
+    || !(job.error === null || typeof job.error === "string"))) return null;
+  return value as FleetUpdateStatus;
+}
+function validRollout(value: unknown): value is FleetRollout {
+  return record(value) && textFields(value, ["id", "expected_version"]) && value.id !== "" && value.expected_version !== ""
+    && enumValue(value.state, ["running", "waiting_for_reconnect", "failed", "cancelled", "completed"])
+    && nonnegative(value.created_at) && nonnegative(value.updated_at)
+    && (value.error === null || typeof value.error === "string") && Array.isArray(value.rigs)
+    && value.rigs.every(item => record(item) && typeof item.rig_id === "string" && item.rig_id !== ""
+      && enumValue(item.state, ["queued", "checking", "installing", "waiting_for_reconnect", "updated", "failed", "cancelled"])
+      && (item.error === null || typeof item.error === "string"));
+}
+
 /** Decode untrusted JSON, including registered agents awaiting their first poll.
  * Incomplete per-rig state never turns into an empty-but-healthy profile list. */
 export function decodeFleetView(value: unknown): FleetView {
@@ -146,7 +189,12 @@ export function decodeFleetView(value: unknown): FleetView {
   const rigs: FleetRig[] = [];
   for (const raw of value.rigs) {
     if (!record(raw) || !textFields(raw, ["rig_id", "name"]) || raw.rig_id === "") continue;
-    const snapshot = validSnapshot(raw.snapshot) ? raw.snapshot : null;
+    const snapshot = validSnapshot(raw.snapshot) ? { ...raw.snapshot } : null;
+    if (snapshot) {
+      const updates = decodeFleetUpdateStatus(snapshot.updates);
+      if (updates) snapshot.updates = updates;
+      else delete snapshot.updates;
+    }
     const config = validConfig(raw.config) ? raw.config : null;
     const validSeen = nonnegative(raw.last_seen);
     rigs.push({ rig_id: raw.rig_id as string, name: raw.name as string,
@@ -156,6 +204,8 @@ export function decodeFleetView(value: unknown): FleetView {
   }
   return { setup: setup as FleetSetup, rigs,
     commands: Array.isArray(value.commands) ? value.commands.filter(validReceipt) : [],
+    rollouts: Array.isArray(value.rollouts) ? value.rollouts.filter(validRollout) : [],
+    coordinator_rig_id: typeof value.coordinator_rig_id === "string" ? value.coordinator_rig_id : null,
     local_setup_allowed: value.local_setup_allowed === true, controller_allowed: value.controller_allowed === true };
 }
 
@@ -168,6 +218,19 @@ export function decodeFleetLogs(value: unknown): FleetLogs | null {
 export function fleetRigFresh(rig: FleetRig, now = Date.now()) {
   const seen = rig.last_seen > 1e11 ? rig.last_seen : rig.last_seen * 1000;
   return rig.online && rig.snapshot?.health === "online" && seen > 0 && now - seen <= 20000;
+}
+
+export function fleetUpdatePreflight(rig: FleetRig, expectedVersion?: string): string | null {
+  if (!fleetRigFresh(rig)) return "offline";
+  const updates = rig.snapshot?.updates;
+  if (!updates || updates.protocol !== 1) return "bootstrap";
+  if (!updates.enabled) return "disabled";
+  if (updates.job && !["completed", "failed", "cancelled"].includes(updates.job.stage)) return "busy";
+  if (!updates.available_version) return updates.reason === "supported" ? "check_required" : updates.reason || "check_required";
+  if (expectedVersion && updates.available_version !== expectedVersion) return "version_changed";
+  if (rig.snapshot?.version === (expectedVersion || updates.available_version)) return "up_to_date";
+  if (!updates.can_install) return updates.reason === "supported" ? "unavailable" : updates.reason || "unavailable";
+  return null;
 }
 
 /** Offline snapshots remain inspectable, but never contribute to current totals. */

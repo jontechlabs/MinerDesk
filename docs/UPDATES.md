@@ -12,9 +12,13 @@ From **0.7.29**, every desktop **GitHub downloads** link opens the release page 
 | Linux x64 AppImage in a writable directory | Signed AppImage download, verification, miner shutdown, replacement and restart. |
 | Installed Linux x64 Debian package with `/usr/bin/pkexec` | Signed Debian download, verification, miner shutdown, the operating system's administrator prompt, `dpkg -i`, restart. No password is collected by MinerDesk. |
 | Debian without graphical elevation, read-only AppImage, portable executable, development build, unsupported architecture/OS | Notification and link to the GitHub release page. |
-| Headless/browser/LAN dashboard | Notification and GitHub link only. Install on the host manually; remote clients cannot request application installation. |
+| Ordinary headless/browser/LAN update banner | Notification and GitHub link only. Optional Fleet updates use the separate local activation and signed-worker flow below. |
 
 Only the Windows installer, Linux `.deb` and Linux AppImage are distributed for x64. There are no macOS/ARM packages in this release. An update with no valid manifest/artifact for the current distribution falls back to the release page. Debian package manager errors or cancelled administrator approval also show that link.
+
+### Fleet updates from 0.8.2
+
+After the initial local upgrade and explicit opt-in on each rig, trusted Fleet controllers can request future signed upgrades without visiting every PC. Debian requires one local authorization for the constrained system helper; writable AppImages remain unprivileged and Windows uses its installed elevated backend. Fleet persists a rolling plan, updates the coordinator last and waits for fresh version confirmation. See [Fleet updates](FLEET-UPDATES.md) for supported installations, revocation and recovery. The ordinary web update banner still cannot invoke an installer.
 
 ### Windows Update button troubleshooting
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Package a tested CI revision, sign update assets, verify, and write latest.json.
 
-Requires Python 3.11+, Node/npm dependencies and minisign on the packaging host.
+Requires Python 3.11+, Node/npm dependencies, minisign, 7z and unsquashfs.
 Private key/password arrive ONLY through Tauri's environment variables.
 """
 import argparse
@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import hashlib
 import io
 import json
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -24,7 +25,7 @@ def sha(path):
     with path.open('rb') as f:
         return hashlib.file_digest(f, 'sha256').hexdigest()
 
-def verify_update(path, pubkey):
+def verify_update(path, pubkey, version):
     signature = base64.b64decode(path.with_name(path.name + '.sig').read_text().strip(), validate=True)
     decoded_key = base64.b64decode(pubkey, validate=True).decode().splitlines()[-1]
     with tempfile.TemporaryDirectory(prefix='minerdesk-signature-') as directory:
@@ -33,6 +34,55 @@ def verify_update(path, pubkey):
         run = subprocess.run(['minisign', '-Vm', str(path), '-x', str(sig), '-P', decoded_key], capture_output=True)
         if run.returncode:
             raise RuntimeError(f'Update signature verification failed: {path.name}')
+    # The trusted comment is authenticated by minisign's global signature.
+    comments = [line.removeprefix('trusted comment: ') for line in signature.decode('utf-8').splitlines() if line.startswith('trusted comment: ')]
+    signed = [field.removeprefix('version:') for comment in comments for field in comment.split('\t') if field.startswith('version:')]
+    if len(signed) != 1 or signed[0].removeprefix('v') != version:
+        raise RuntimeError(f'Update signature version differs from {version}: {path.name}')
+
+LINUX_HELPERS = ['minerdesk-linux-helper', 'minerdesk-approved-helper', 'minerdesk-update-helper']
+WINDOWS_BINARIES = ['MinerDesk.exe', 'minerdesk-headless.exe', 'minerdesk-backend.exe', 'minerdesk-update-helper.exe']
+WINDOWS_SCRIPTS = ['maintenance.ps1', 'maintenance-common.ps1']
+
+def verify_deb_resources(deb, linux):
+    with tarfile.open(fileobj=io.BytesIO(subprocess.check_output(['dpkg-deb','--fsys-tarfile',str(deb)]))) as package:
+        for name in LINUX_HELPERS:
+            helpers = [entry for entry in package.getmembers() if entry.name.endswith('/resources/'+name)]
+            if len(helpers) != 1 or not helpers[0].isfile() or helpers[0].mode != 0o755 or helpers[0].uid != 0 or helpers[0].gid != 0 or package.extractfile(helpers[0]).read() != (linux / name).read_bytes():
+                raise RuntimeError('Debian elevation helper is missing, non-executable or differs from tested binary')
+        fixed = [entry for entry in package.getmembers() if entry.name.removeprefix('./') == 'usr/lib/minerdesk/minerdesk-update-helper']
+        if len(fixed) != 1 or not fixed[0].isfile() or fixed[0].mode != 0o755 or fixed[0].uid != 0 or fixed[0].gid != 0 or package.extractfile(fixed[0]).read() != (linux / 'minerdesk-update-helper').read_bytes():
+            raise RuntimeError('Debian fixed update worker is missing, unsafe or differs from tested binary')
+
+def verify_windows_resources(installer, windows):
+    listing = subprocess.check_output(['7z', 'l', '-slt', str(installer)], text=True)
+    paths = [line.removeprefix('Path = ').replace('\\', '/') for line in listing.splitlines() if line.startswith('Path = ')]
+    for name in ['minerdesk-headless.exe', 'minerdesk-backend.exe', 'minerdesk-update-helper.exe', *WINDOWS_SCRIPTS]:
+        matches = [path for path in paths if path.endswith('/resources/' + name) or path == 'resources/' + name]
+        if len(matches) != 1:
+            raise RuntimeError(f'Windows installer is missing its unique resource: {name}')
+        raw = subprocess.check_output(['7z', 'x', '-so', str(installer), matches[0]])
+        if raw != (windows / name).read_bytes():
+            raise RuntimeError(f'Windows installer resource differs from tested bytes: {name}')
+
+def verify_appimage_resources(image, linux):
+    raw = image.read_bytes()
+    # AppImage type 2 embeds a SquashFS after its ELF runtime. Extract the
+    # filesystem using a data parser; never run the supplied AppImage.
+    offsets = (match.start() for match in re.finditer(b'hsqs', raw))
+    offset = next((offset for offset in offsets if subprocess.run(['unsquashfs', '-s', '-o', str(offset), str(image)], capture_output=True).returncode == 0), None)
+    if offset is None:
+        raise RuntimeError('AppImage has no readable SquashFS filesystem')
+    with tempfile.TemporaryDirectory(prefix='minerdesk-appimage-') as directory:
+        extracted = Path(directory) / 'AppDir'
+        subprocess.run(['unsquashfs', '-no-progress', '-o', str(offset), '-d', str(extracted), str(image)], check=True, stdout=subprocess.DEVNULL)
+        for name in LINUX_HELPERS:
+            matches = [path for path in extracted.rglob(name) if path.parent.name == 'resources']
+            if len(matches) != 1 or matches[0].is_symlink() or matches[0].stat().st_mode & 0o7777 != 0o755 or matches[0].read_bytes() != (linux / name).read_bytes():
+                raise RuntimeError(f'AppImage helper is missing, non-executable or differs from tested binary: {name}')
+        helper = extracted / 'usr/bin/minerdesk-update-helper'
+        if helper.is_symlink() or not helper.is_file() or helper.stat().st_mode & 0o7777 != 0o755 or helper.read_bytes() != (linux / helper.name).read_bytes():
+            raise RuntimeError('AppImage update worker is not beside the application executable')
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -54,28 +104,35 @@ def main():
     info = json.loads((windows / 'build-info.json').read_text(encoding='utf-8-sig'))
     if info['version'] != version:
         raise RuntimeError('Wrong Windows artifact version')
+    installer = f'MinerDesk_{version}_x64-setup.exe'
+    required_windows = {*WINDOWS_BINARIES, *WINDOWS_SCRIPTS, installer}
+    if not required_windows.issubset(info['sha256']):
+        raise RuntimeError('Windows build receipt does not cover every required executable and maintenance script')
     for name, expected in info['sha256'].items():
-        if sha(windows / name).lower() != expected.lower():
+        if Path(name).name != name or sha(windows / name).lower() != expected.lower():
             raise RuntimeError(f'Windows artifact hash mismatch: {name}')
+    linux_hashes = set()
     for line in (linux / 'SHA256SUMS.txt').read_text().splitlines():
         expected, name = line.split(maxsplit=1)
         if Path(name).name != name or sha(linux / name) != expected:
             raise RuntimeError('Linux artifact hash mismatch')
+        linux_hashes.add(name)
+    if not {'minerdesk', 'minerdesk-headless', *LINUX_HELPERS}.issubset(linux_hashes):
+        raise RuntimeError('Linux checksum receipt does not cover every required executable')
     records = {}
-    for name in ['MinerDesk.exe', 'minerdesk-headless.exe', 'minerdesk-backend.exe']:
+    for name in WINDOWS_BINARIES:
         raw = (windows / name).read_bytes()
         offset = struct.unpack_from('<I', raw, 0x3c)[0]
         if raw[:2] != b'MZ' or raw[offset:offset+4] != b'PE\0\0' or struct.unpack_from('<H', raw, offset+4)[0] != 0x8664:
             raise RuntimeError('Wrong Windows executable architecture')
         subsystem = struct.unpack_from('<H', raw, offset+24+68)[0]
-        if subsystem != (3 if name == 'minerdesk-headless.exe' else 2):
+        if subsystem != (3 if name in ['minerdesk-headless.exe', 'minerdesk-update-helper.exe'] else 2):
             raise RuntimeError('Wrong Windows executable subsystem')
         records[name] = {'machine':'x86_64','subsystem':subsystem}
-    for name in ['minerdesk','minerdesk-headless','minerdesk-linux-helper','minerdesk-approved-helper']:
+    for name in ['minerdesk', 'minerdesk-headless', *LINUX_HELPERS]:
         raw = (linux / name).read_bytes()[:64]
         if raw[:4] != b'\x7fELF' or raw[4] != 2 or struct.unpack_from('<H', raw, 18)[0] != 62:
             raise RuntimeError('Wrong Linux executable architecture')
-    installer = f'MinerDesk_{version}_x64-setup.exe'
     appimage = f'MinerDesk_{version}_amd64.AppImage'
     deb = f'MinerDesk_{version}_amd64.deb'
     package_name = subprocess.check_output(['dpkg-deb','-f',str(linux / deb),'Package'],text=True).strip()
@@ -85,29 +142,28 @@ def main():
     dependencies = subprocess.check_output(['dpkg-deb','-f',str(linux / deb),'Depends'],text=True)
     if not any(name in dependencies for name in ['libayatana-appindicator3-1','libappindicator3-1']):
         raise RuntimeError('Debian package is missing the tray runtime dependency')
-    with tarfile.open(fileobj=io.BytesIO(subprocess.check_output(['dpkg-deb','--fsys-tarfile',str(linux / deb)]))) as package:
-        for name in ['minerdesk-linux-helper','minerdesk-approved-helper']:
-            helpers = [entry for entry in package.getmembers() if entry.name.endswith('/resources/'+name)]
-            if len(helpers) != 1 or helpers[0].mode != 0o755 or package.extractfile(helpers[0]).read() != (linux / name).read_bytes():
-                raise RuntimeError('Debian elevation helper is missing, non-executable or differs from tested binary')
+    verify_deb_resources(linux / deb, linux)
+    verify_windows_resources(windows / installer, windows)
+    verify_appimage_resources(linux / appimage, linux)
     for directory, name in [(windows, installer), (windows, 'minerdesk-headless.exe'), (linux, appimage), (linux, deb)]:
         shutil.copyfile(directory / name, out / name)
     with zipfile.ZipFile(out / f'MinerDesk_{version}_windows-x64.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
         for name in records: archive.write(windows / name, name)
-        for name in ['LICENSE','SETUP-WINDOWS.md','SECURITY.md','docs/FLEET.md','docs/UPDATES.md','docs/QUANTUS.md','docs/PEAKMINER.md']: archive.write(ROOT / name, name)
+        for name in WINDOWS_SCRIPTS: archive.write(windows / name, name)
+        for name in ['LICENSE','SETUP-WINDOWS.md','SECURITY.md','docs/FLEET.md','docs/FLEET-UPDATES.md','docs/UPDATES.md','docs/QUANTUS.md','docs/PEAKMINER.md']: archive.write(ROOT / name, name)
     with tarfile.open(out / f'MinerDesk_{version}_linux-x64.tar.gz', 'w:gz') as archive:
-        for name in ['minerdesk','minerdesk-headless','minerdesk-linux-helper','minerdesk-approved-helper']:
+        for name in ['minerdesk', 'minerdesk-headless', *LINUX_HELPERS]:
             entry = archive.gettarinfo(str(linux / name), arcname=name)
             entry.mode = 0o755; entry.uid = entry.gid = 0; entry.uname = entry.gname = ''
             with (linux / name).open('rb') as file: archive.addfile(entry, file)
-        for name in ['LICENSE','BUILD-LINUX.md','SECURITY.md','docs/FLEET.md','docs/UPDATES.md','docs/QUANTUS.md','docs/LINUX-ELEVATION.md','docs/PEAKMINER.md']: archive.add(ROOT / name, arcname=name)
+        for name in ['LICENSE','BUILD-LINUX.md','SECURITY.md','docs/FLEET.md','docs/FLEET-UPDATES.md','docs/UPDATES.md','docs/QUANTUS.md','docs/LINUX-ELEVATION.md','docs/PEAKMINER.md']: archive.add(ROOT / name, arcname=name)
     subprocess.run(['git','archive','--format=zip','-o',str(out / f'MinerDesk_{version}_source.zip'),head],cwd=ROOT,check=True)
     pubkey = json.loads((ROOT / 'src-tauri/tauri.conf.json').read_text())['plugins']['updater']['pubkey']
     for name in [installer, appimage, deb]:
-        result = subprocess.run(['node',str(ROOT / 'node_modules/@tauri-apps/cli/tauri.js'),'signer','sign',str(out / name)],capture_output=True)
+        result = subprocess.run(['node',str(ROOT / 'node_modules/@tauri-apps/cli/tauri.js'),'signer','sign','--app-version',version,str(out / name)],capture_output=True)
         if result.returncode:
             raise RuntimeError('Update signing failed (private diagnostic output withheld)')
-        verify_update(out / name, pubkey)
+        verify_update(out / name, pubkey, version)
     now = datetime.now(timezone.utc).isoformat().replace('+00:00','Z')
     manifest = {'version':version,'notes':args.notes.read_text(encoding='utf-8'),'pub_date':now,'platforms':{}}
     for target,name in [('windows-x86_64',installer),('linux-x86_64-appimage',appimage),('linux-x86_64-deb',deb)]:

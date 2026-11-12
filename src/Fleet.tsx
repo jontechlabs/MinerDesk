@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ScheduleWindow } from "./types";
-import { decodeFleetLogs, decodeFleetView, fleetEditablePatch, fleetHashrate, fleetPreflight, fleetRigFresh, fleetSummary, fleetUptime } from "./fleetTypes";
+import { decodeFleetLogs, decodeFleetUpdateStatus, decodeFleetView, fleetEditablePatch, fleetHashrate, fleetPreflight, fleetRigFresh, fleetSummary, fleetUpdatePreflight, fleetUptime } from "./fleetTypes";
 import type {
   FleetAction, FleetConfig, FleetDiscovery, FleetInvitation, FleetLogs, FleetMiner,
-  FleetOperation, FleetProfile, FleetProfilePatch, FleetReceipt, FleetRequest, FleetRig, FleetView,
+  FleetOperation, FleetProfile, FleetProfilePatch, FleetReceipt, FleetRequest, FleetRig, FleetRollout, FleetUpdateStatus, FleetView,
 } from "./fleetTypes";
 
 export type FleetProps = { language: string; request: FleetRequest; localName?: string; platform?: string };
 type Text = (fr: string, en: string) => string;
 type Target = { rig_id: string; profile_id: string };
-type OperationResult = { rig_id: string; name: string; receipt?: FleetReceipt; error?: string };
+type OperationResult = { rig_id: string; name: string; receipt?: FleetReceipt; error?: string; updateCheck?: boolean };
 type Editor = { rig: FleetRig; config: FleetConfig; before: FleetProfile; draft: FleetProfile };
 type ScheduleEditor = { rig: FleetRig; config: FleetConfig; schedules: ScheduleWindow[] };
 type Review = { targets: Target[]; action: FleetAction };
@@ -71,6 +71,55 @@ function receiptLabel(receipt: FleetReceipt, t: Text) {
   return ({ queued: t("En file", "Queued"), running: t("En cours", "Running"), succeeded: t("Réussi", "Succeeded"),
     failed: t("Échec", "Failed"), expired: t("Expiré", "Expired") })[receipt.state];
 }
+function updateReason(code: string, t: Text): string {
+  return ({
+    offline: t("Hors ligne : exclu de la mise à jour.", "Offline: excluded from the update."),
+    bootstrap: t("Installez d’abord cette nouvelle version localement avec l’outil de mise à jour de MinerDesk, puis activez les mises à jour distantes une fois sur ce rig.", "First install this new release locally using MinerDesk’s existing updater, then enable remote updates once on this rig."),
+    disabled: t("Mises à jour distantes désactivées. Activez-les localement sur ce rig.", "Remote updates are off. Enable them locally on this rig."),
+    busy: t("Une mise à jour est déjà en cours.", "An update is already in progress."),
+    check_required: t("Vérifiez les mises à jour pour connaître la version disponible.", "Check updates to discover the available version."),
+    version_changed: t("La version proposée ne correspond plus à la version examinée. Vérifiez à nouveau.", "The offered version no longer matches the reviewed version. Check again."),
+    up_to_date: t("À jour selon la dernière vérification.", "Up to date according to the last check."),
+    supported: t("Prêt pour une mise à jour distante.", "Ready for a remote update."),
+    checking: t("Recherche de mises à jour…", "Checking for updates…"),
+    unavailable: t("La version disponible n’a pas pu être vérifiée.", "The available release could not be verified."),
+    development: t("Les versions de développement ne peuvent pas être mises à jour à distance.", "Development builds cannot be updated remotely."),
+    platform: t("Plateforme non prise en charge pour les mises à jour distantes.", "This platform does not support remote updates."),
+    installation: t("Cette installation ne permet pas les mises à jour distantes.", "This installation does not support remote updates."),
+    portable: t("Cette installation portable ne permet pas les mises à jour distantes.", "This portable installation does not support remote updates."),
+    readonly: t("L’installation est en lecture seule.", "The installation is read-only."),
+    root_enrollment_required: t("Autorisation Linux initiale requise localement sur ce rig.", "Initial Linux authorization is required locally on this rig."),
+    helper_missing: t("L’assistant de mise à jour doit être installé localement sur ce rig.", "The update helper must be installed locally on this rig."),
+    policy_unavailable: t("La politique locale de mise à jour n’est pas disponible.", "The local update policy is unavailable."),
+    administrator_required: t("Une autorisation administrateur Windows est requise localement sur ce rig.", "Windows administrator authorization is required locally on this rig."),
+  } as Record<string, string>)[code] || t("Ce rig n’est pas prêt pour une mise à jour distante.", "This rig is not ready for a remote update.");
+}
+function updateStage(stage: string, t: Text): string {
+  return ({ queued: t("En file · pas encore installé", "Queued · not installed"), checking: t("Vérification", "Checking"),
+    downloading: t("Téléchargement", "Downloading"), verifying: t("Vérification de la signature", "Verifying signature"), ready: t("Préparation", "Preparing"),
+    stopping: t("Arrêt du minage", "Stopping mining"), installing: t("Installation en cours", "Installing"),
+    restarting: t("Redémarrage · attente de reconnexion", "Restarting · waiting for reconnect"),
+    completed: t("Installation terminée · version à confirmer après reconnexion", "Installer completed · awaiting version confirmation after reconnect"),
+    waiting_for_reconnect: t("Attente de reconnexion et confirmation de version", "Waiting for reconnect and version confirmation"),
+    updated: t("Version confirmée après reconnexion", "Version confirmed after reconnect"),
+    running: t("Déploiement en cours", "Rollout in progress"), failed: t("Échec · déploiement arrêté", "Failed · rollout stopped"),
+    cancelled: t("Restant annulé", "Remaining cancelled") } as Record<string, string>)[stage] || stage;
+}
+function UpdateInfo({ rig, t }: { rig: FleetRig; t: Text }) {
+  const updates = rig.snapshot?.updates;
+  const job = updates?.job;
+  return <div className="fleet-update-info">
+    <strong>{t("Version MinerDesk", "MinerDesk version")} · {rig.snapshot?.version || "—"}</strong>
+    {!fresh(rig) && <small>{t("Dernier état reçu · version actuelle non confirmée", "Last reported snapshot · current version unconfirmed")}</small>}
+    {updates?.protocol === 1 ? <>
+      {updates.available_version && <span>{t("Disponible", "Available")} · {updates.available_version}</span>}
+      {job && <><span>{updateStage(job.stage, t)} · {job.expected_version}</span>
+        {job.stage === "downloading" && <><progress aria-label={t(`Téléchargement sur ${rig.name}`, `Download on ${rig.name}`)} value={job.total && job.total > 0 ? Math.min(job.downloaded, job.total) : undefined} max={job.total && job.total > 0 ? job.total : undefined}/><small>{Math.round(job.downloaded / 1024 / 1024)} MiB{job.total ? ` / ${Math.round(job.total / 1024 / 1024)} MiB` : ""}</small></>}
+        {job.error && <small className="fleet-error-text">{job.error}</small>}</>}
+      <small>{updateReason(fleetUpdatePreflight(rig) || "supported", t)}</small>
+    </> : <small>{updateReason("bootstrap", t)}</small>}
+  </div>;
+}
 function resultSummary(value: unknown, t: Text) {
   if (value && typeof value === "object") {
     const result = value as Record<string, unknown>;
@@ -114,7 +163,7 @@ export default function Fleet({ language, request, localName }: FleetProps) {
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
   const [layout, setLayout] = useState<"cards" | "table">("cards"), [query, setQuery] = useState(""), [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<string[]>([]), [detailId, setDetailId] = useState<string | null>(null);
-  const [detailTab, setDetailTab] = useState<"profiles" | "gpu" | "schedules" | "logs">("profiles");
+  const [detailTab, setDetailTab] = useState<"profiles" | "gpu" | "schedules" | "logs" | "updates">("profiles");
   const [hubName, setHubName] = useState(localName || ""), [hubAddress, setHubAddress] = useState("");
   const [joinAddress, setJoinAddress] = useState(""), [joinKey, setJoinKey] = useState("");
   const [showSetup, setShowSetup] = useState(false), [invitation, setInvitation] = useState<FleetInvitation | null>(null);
@@ -124,6 +173,9 @@ export default function Fleet({ language, request, localName }: FleetProps) {
   const [logsProfile, setLogsProfile] = useState(""), [logReceipt, setLogReceipt] = useState<string | null>(null), [logs, setLogs] = useState<FleetLogs | null>(null);
   const [disconnect, setDisconnect] = useState(false);
   const [revokeRig, setRevokeRig] = useState<FleetRig | null>(null);
+  const [updateReview, setUpdateReview] = useState<string[] | null>(null);
+  const [localUpdates, setLocalUpdates] = useState<FleetUpdateStatus | null>(null), [policyError, setPolicyError] = useState("");
+  const [policyAction, setPolicyAction] = useState<string | null>(null);
   const requestRef = useRef(request); requestRef.current = request;
   const alive = useRef(true), polling = useRef(false), mutation = useRef(false);
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -146,6 +198,18 @@ export default function Fleet({ language, request, localName }: FleetProps) {
     if (view?.setup.name) setHubName(old => old || view.setup.name);
   }, [view?.setup.name]);
   useEffect(() => { if (view?.setup.suggested_url) setHubAddress(old => old || view.setup.suggested_url!); }, [view?.setup.suggested_url]);
+  const showLocalUpdates = !!view?.local_setup_allowed && (showSetup || view?.setup.mode === "standalone");
+  useEffect(() => {
+    if (!showLocalUpdates) return;
+    const controller = new AbortController();
+    void requestRef.current<unknown>("/api/fleet/updates", { signal: controller.signal }, 12000).then(value => {
+      if (!alive.current || controller.signal.aborted) return;
+      const decoded = decodeFleetUpdateStatus(value);
+      if (!decoded) throw new Error(t("État de mise à jour invalide", "Invalid update status"));
+      setLocalUpdates(decoded); setPolicyError("");
+    }).catch(e => { if (alive.current && !controller.signal.aborted) { setLocalUpdates(null); setPolicyError(errorText(e)); } });
+    return () => controller.abort();
+  }, [showLocalUpdates]);
   useEffect(() => {
     const receipt = view?.commands.find(c => c.id === logReceipt);
     if (receipt?.state === "succeeded" && receipt.result && typeof receipt.result === "object") {
@@ -166,12 +230,30 @@ export default function Fleet({ language, request, localName }: FleetProps) {
   const localSetup = !!view?.local_setup_allowed;
   const canRevoke = (rig: FleetRig) => view?.setup.mode === "hub" && localSetup
     && rig.rig_id !== view.setup.rig_id && view.rigs.some(r => r.rig_id === rig.rig_id);
-  async function mutate<T>(path: string, options: RequestInit, done?: (value: T) => void) {
+  async function mutate<T>(path: string, options: RequestInit, done?: (value: T) => void, timeoutMs = 20000) {
     if (mutation.current) return;
     mutation.current = true; setBusy(true); setError(""); setNotice("");
-    try { const value = await requestRef.current<T>(path, options, 20000); if (alive.current) done?.(value); await refresh(); }
+    try { const value = await requestRef.current<T>(path, options, timeoutMs); if (alive.current) done?.(value); await refresh(); }
     catch (e) { if (alive.current) setError(errorText(e).split(joinKey || "\u0000").join("[redacted]")); }
     finally { mutation.current = false; if (alive.current) setBusy(false); }
+  }
+  async function updatePolicy(action: "enable" | "disable" | "enroll" | "revoke") {
+    if (!localSetup || mutation.current) return;
+    setPolicyAction(action);
+    await mutate<unknown>(`/api/fleet/updates/${action}`, json({}), value => {
+      const decoded = decodeFleetUpdateStatus(value);
+      if (!decoded) { setPolicyError(t("État de mise à jour invalide", "Invalid update status")); return; }
+      setLocalUpdates(decoded); setPolicyError("");
+      setNotice(t("Politique de mise à jour enregistrée sur cette machine.", "Update policy saved on this machine."));
+    }, action === "enroll" ? 150000 : 20000);
+    if (alive.current) setPolicyAction(null);
+  }
+  async function startRollout(rigIds: string[], expectedVersion: string) {
+    if (!canControl || !rigIds.length || rigIds.some(id => { const rig = rigs.find(r => r.rig_id === id); return !rig || fleetUpdatePreflight(rig, expectedVersion); })) return;
+    await mutate<unknown>("/api/fleet/updates/rollouts", json({ rig_ids: rigIds, expected_version: expectedVersion }), () => {
+      setUpdateReview(null);
+      setNotice(t("Déploiement accepté. Chaque version sera confirmée après reconnexion ; l’acceptation ne prouve pas l’installation.", "Rollout accepted. Each version is confirmed after reconnect; acceptance does not prove installation."));
+    });
   }
   function openRig(rig: FleetRig) { setDetailId(rig.rig_id); setDetailTab("profiles"); setLogs(null); setLogReceipt(null); }
   function queueAction(rig: FleetRig, miner: FleetMiner, action: FleetAction) {
@@ -196,7 +278,7 @@ export default function Fleet({ language, request, localName }: FleetProps) {
       }
       try {
         const receipts = await requestRef.current<FleetReceipt[]>("/api/fleet/commands", json({ rig_ids: [item.rig.rig_id], operation: item.operation }), 20000);
-        for (const receipt of receipts) next.push({ rig_id: item.rig.rig_id, name: item.rig.name, receipt });
+        for (const receipt of receipts) next.push({ rig_id: item.rig.rig_id, name: item.rig.name, receipt, updateCheck: item.operation.action === "update_check" });
         if (!receipts.length) next.push({ rig_id: item.rig.rig_id, name: item.rig.name, error: t("Aucun accusé de réception", "No command receipt returned") });
       } catch (e) { next.push({ rig_id: item.rig.rig_id, name: item.rig.name, error: errorText(e) }); }
     }
@@ -220,6 +302,15 @@ export default function Fleet({ language, request, localName }: FleetProps) {
     </div>;
   }
   const setupContent = view && <div className="fleet-setup">
+    {localSetup && <section className="fleet-setup-panel fleet-update-policy"><h2>{t("Mises à jour distantes · cette machine", "Remote updates · this machine")}</h2>
+      <p>{t("Désactivées par défaut. Après cette activation locale initiale sur chaque rig, vous pourrez lancer les futures mises à jour depuis n’importe quel PC associé autorisé.", "Off by default. After this initial local opt-in on each rig, you can start future updates from any authorized paired PC.")}</p>
+      {policyAction === "enroll" && <p role="status">{t("En attente de l’approbation système Linux sur cette machine… La demande peut prendre jusqu’à deux minutes.", "Waiting for Linux system approval on this machine… This can take up to two minutes.")}</p>}
+      {localUpdates ? <><label className="fleet-check"><input type="checkbox" checked={localUpdates.enabled} disabled={busy || localUpdates.protocol !== 1} onChange={e => void updatePolicy(e.target.checked ? "enable" : "disable")}/>{t("Autoriser les mises à jour distantes sur cette machine", "Allow remote updates on this machine")}</label>
+        <small>{updateReason(localUpdates.reason, t)}</small>
+        {localUpdates.root_required && <><p>{t("Linux : autorisez une fois l’assistant système sur cette machine. La demande d’approbation s’ouvre dans le système ; aucun mot de passe administrateur n’est transmis ou conservé par Fleet.", "Linux: authorize the system helper once on this machine. Approval opens in the operating system; Fleet never sends or stores an administrator password.")}</p><div className="fleet-actions"><Badge kind={localUpdates.root_enrolled ? "good" : "warning"}>{localUpdates.root_enrolled ? t("Assistant autorisé", "Helper authorized") : t("Autorisation initiale requise", "Initial authorization required")}</Badge><button type="button" className="fleet-btn fleet-small" disabled={busy} onClick={() => void updatePolicy(localUpdates.root_enrolled ? "revoke" : "enroll")}>{localUpdates.root_enrolled ? t("Révoquer l’autorisation Linux", "Revoke Linux authorization") : t("Autoriser une fois sur Linux", "Authorize once on Linux")}</button></div></>}
+      </> : !policyError && <p role="status">{t("Chargement de la politique locale…", "Loading local policy…")}</p>}
+      {policyError && <div className="fleet-callout error" role="alert">{t("La politique locale n’a pas pu être chargée. Aucune activation n’est présumée.", "The local policy could not be loaded. Opt-in is not assumed.")}<p>{policyError}</p></div>}
+    </section>}
     {view.setup.mode === "standalone" && <section className="fleet-setup-panel"><h2>{t("Créer une flotte ici", "Create a fleet here")}</h2><p>{t("Cette instance devient le coordinateur. Les agents conservent leurs plannings et configurations locales.", "This instance becomes the coordinator. Agents retain their local schedules and configuration.")}</p>
       <form onSubmit={e => { e.preventDefault(); void mutate<FleetView>("/api/fleet/create", json({ name: hubName.trim(), advertise_url: hubAddress.trim(), listen: "0.0.0.0:17889" }), result => { setView(decodeFleetView(result)); setShowSetup(false); setNotice(t("Coordinateur créé. Générez une clé d’association pour ajouter une machine.", "Coordinator created. Generate a pairing key to add a machine.")); }); }}>
         <label className="fleet-field">{t("Nom du coordinateur", "Coordinator name")}<input value={hubName} onChange={e => setHubName(e.target.value)} required maxLength={80} disabled={!localSetup || busy}/></label>
@@ -259,25 +350,29 @@ export default function Fleet({ language, request, localName }: FleetProps) {
         <div className="fleet-kpi"><div className="fleet-kpi-label">{t("Puissance GPU rapportée", "Reported GPU power")}</div><div className="fleet-kpi-value">{summary.power === null ? "—" : Math.round(summary.power)}<span>{summary.power !== null ? " W" : ""}</span></div><small>{summary.powerReadings} {t("mesure(s) de mineurs · pas à la prise", "miner reading(s) · not wall power")}</small></div>
       </div>
       {Object.keys(summary.algorithms).length > 0 && <div className="fleet-hash-groups" aria-label={t("Débits par algorithme", "Hashrates by algorithm")}>{Object.entries(summary.algorithms).map(([algorithm, hps]) => <span key={algorithm}><strong>{algorithm}</strong> · {fleetHashrate(hps)}</span>)}</div>}
+      <section className="fleet-updates-overview" aria-label={t("Mises à jour MinerDesk", "MinerDesk updates")}><div><h2>{t("Mises à jour MinerDesk", "MinerDesk updates")}</h2><p>{t("Déploiement rig par rig, coordinateur en dernier. L’étape suivante attend la reconnexion et la version confirmée ; le premier échec arrête le restant.", "Updates run one rig at a time, coordinator last. Each next step waits for reconnect and the confirmed version; the first failure stops the remaining rollout.")}</p></div><button type="button" className="fleet-btn" disabled={busy || !canControl || !rigs.some(r => fresh(r) && r.snapshot?.updates?.protocol === 1 && (!selected.length || selected.includes(r.rig_id)))} onClick={() => void sendOperations(rigs.filter(r => fresh(r) && r.snapshot?.updates?.protocol === 1 && (!selected.length || selected.includes(r.rig_id))).map(rig => ({ rig, operation: { action: "update_check" as const } })))}>{selected.length ? t("Vérifier la sélection", "Check selected updates") : t("Vérifier les mises à jour", "Check updates")}</button></section>
+      {view.rollouts.map(rollout => <RolloutStatus key={rollout.id} rollout={rollout} rigs={rigs} t={t} busy={busy} canControl={canControl} onCancel={() => void mutate<unknown>(`/api/fleet/updates/rollouts/${encodeURIComponent(rollout.id)}/cancel`, json({}), () => setNotice(t("Le restant a été annulé. Le rig déjà en cours termine sa mise à jour.", "Remaining updates cancelled. A rig already updating continues.")))}/>)}
       <div className="fleet-section-head"><h2>{t("Flotte", "Fleet")}</h2><small>{t("Les états périmés sont exclus des totaux.", "Stale snapshots are excluded from totals.")}</small></div>
       <div className="fleet-toolbar"><label className="fleet-field fleet-search">{t("Rechercher", "Search")}<input type="search" placeholder={t("Rig, profil, moteur ou algorithme…", "Rig, profile, engine or algorithm…")} value={query} onChange={e => setQuery(e.target.value)}/></label>
         <label className="fleet-field fleet-filter">{t("Afficher", "Show")}<select value={filter} onChange={e => setFilter(e.target.value)}><option value="all">{t("Tous les rigs", "All rigs")}</option><option value="online">{t("Connectés", "Connected")}</option><option value="mining">{t("En minage", "Mining")}</option><option value="waiting">{t("Planning · attente", "Schedule · waiting")}</option><option value="offline">{t("Hors ligne / inconnus", "Offline / unknown")}</option></select></label>
         <div className="fleet-toggle" aria-label={t("Présentation", "Layout")}><button type="button" aria-pressed={layout === "cards"} onClick={() => setLayout("cards")}>{t("Cartes", "Cards")}</button><button type="button" aria-pressed={layout === "table"} onClick={() => setLayout("table")}>{t("Tableau", "Table")}</button></div>
       </div>
-      {selected.length > 0 && <div className="fleet-bulk"><span>{selected.length} {t("rig(s) sélectionné(s)", "rig(s) selected")}</span><button type="button" className="fleet-btn fleet-small" onClick={() => setSelected([])}>{t("Effacer", "Clear")}</button><button type="button" className="fleet-btn fleet-primary fleet-small" disabled={!canControl || busy} onClick={() => setReview({ action: "start", targets: selected.map(id => ({ rig_id: id, profile_id: rigs.find(r => r.rig_id === id)?.snapshot?.status[0]?.id || "" })) })}>{t("Actions groupées…", "Bulk actions…")}</button></div>}
+      {selected.length > 0 && <div className="fleet-bulk"><span>{selected.length} {t("rig(s) sélectionné(s)", "rig(s) selected")}</span><button type="button" className="fleet-btn fleet-small" onClick={() => setSelected([])}>{t("Effacer", "Clear")}</button><button type="button" className="fleet-btn fleet-small" disabled={!canControl || busy} onClick={() => setUpdateReview([...selected])}>{t("Mettre à jour la sélection…", "Update selected…")}</button><button type="button" className="fleet-btn fleet-primary fleet-small" disabled={!canControl || busy} onClick={() => setReview({ action: "start", targets: selected.map(id => ({ rig_id: id, profile_id: rigs.find(r => r.rig_id === id)?.snapshot?.status[0]?.id || "" })) })}>{t("Actions groupées…", "Bulk actions…")}</button></div>}
       {shown.length === 0 ? <div className="fleet-empty"><div className="fleet-empty-mark">M</div><h2>{rigs.length ? t("Aucun rig ne correspond", "No matching rigs") : t("Votre flotte commence ici", "Your fleet starts here")}</h2><p>{rigs.length ? t("Essayez un autre filtre ou terme de recherche.", "Try another filter or search term.") : t("Aucune machine associée n’a encore envoyé d’état. Créez un coordinateur ou rejoignez une flotte avec une clé d’association.", "No paired machine has reported a snapshot yet. Create a coordinator or join a fleet with a pairing key.")}</p></div>
         : layout === "cards" ? <div className="fleet-grid">{shown.map(r => { const online = fresh(r), totals = fleetSummary([r]); return <article className="fleet-rig" key={r.rig_id} aria-current={detailId === r.rig_id ? "true" : undefined}>
           <div className="fleet-rig-head"><div><button type="button" className="fleet-rig-name" onClick={() => openRig(r)}>{r.name}</button><small>{r.snapshot?.os || t("Système non reçu", "OS not reported")} · {r.snapshot?.version || "—"}</small></div><label className="fleet-select"><input type="checkbox" aria-label={t(`Sélectionner ${r.name}`, `Select ${r.name}`)} checked={selected.includes(r.rig_id)} onChange={e => setSelected(old => e.target.checked ? [...new Set([...old, r.rig_id])] : old.filter(id => id !== r.rig_id))}/></label></div>
           <div className="fleet-badges"><Badge kind={online ? "good" : "warning"}>{connectionLabel(r,t)}</Badge><Badge kind={online && totals.running ? "good" : ""}>{rigMode(r, t)}</Badge></div>
           <div className="fleet-rig-metrics"><div><small>{t("Débit par algorithme", "Hashrate by algorithm")}</small>{Object.keys(totals.algorithms).length ? Object.entries(totals.algorithms).map(([a, v]) => <div key={a}><strong>{fleetHashrate(v)}</strong><small>{a}</small></div>) : <strong>—</strong>}</div><div><small>{t("Puissance GPU", "GPU power")}</small><strong>{totals.power === null ? "—" : `${Math.round(totals.power)} W`}</strong></div></div>
           <div className="fleet-rig-line">{r.snapshot?.gpu_inventory_available && r.snapshot.gpu_inventory.length ? r.snapshot.gpu_inventory.map(g => g.name).join(" · ") : t("Inventaire GPU non disponible", "GPU inventory unavailable")}</div>
+          <UpdateInfo rig={r} t={t}/>
           <div className="fleet-rig-foot"><span className="fleet-rig-seen">{t("Dernier état", "Last snapshot")} · {age(r.last_seen, t)}</span><button type="button" className="fleet-btn fleet-small fleet-quiet" onClick={() => openRig(r)}>{t("Ouvrir", "Open")}</button></div>
-        </article>; })}</div> : <div className="fleet-table-wrap"><table className="fleet-table"><thead><tr><th><input type="checkbox" aria-label={t("Sélectionner les rigs affichés", "Select visible rigs")} checked={shown.length > 0 && shown.every(r => selected.includes(r.rig_id))} onChange={e => setSelected(e.target.checked ? [...new Set([...selected, ...shown.map(r => r.rig_id)])] : selected.filter(id => !shown.some(r => r.rig_id === id)))}/></th><th>Rig</th><th>{t("Connexion", "Connection")}</th><th>{t("Minage", "Mining")}</th><th>{t("Débit / algorithme", "Hashrate / algorithm")}</th><th>{t("Puissance GPU", "GPU power")}</th></tr></thead><tbody>{shown.map(r => { const totals = fleetSummary([r]); return <tr key={r.rig_id}><td><input type="checkbox" aria-label={t(`Sélectionner ${r.name}`, `Select ${r.name}`)} checked={selected.includes(r.rig_id)} onChange={e => setSelected(old => e.target.checked ? [...new Set([...old, r.rig_id])] : old.filter(id => id !== r.rig_id))}/></td><td><button type="button" className="fleet-rig-name" onClick={() => openRig(r)}>{r.name}</button><small>{r.snapshot?.os || "—"}</small></td><td><Badge kind={fresh(r) ? "good" : "warning"}>{connectionLabel(r,t)}</Badge><small>{age(r.last_seen, t)}</small></td><td>{rigMode(r, t)}</td><td>{Object.entries(totals.algorithms).map(([a, v]) => <div key={a}><strong>{fleetHashrate(v)}</strong><small>{a}</small></div>)}{!Object.keys(totals.algorithms).length && "—"}</td><td>{totals.power === null ? "—" : `${Math.round(totals.power)} W`}</td></tr>; })}</tbody></table></div>}
+        </article>; })}</div> : <div className="fleet-table-wrap"><table className="fleet-table"><thead><tr><th><input type="checkbox" aria-label={t("Sélectionner les rigs affichés", "Select visible rigs")} checked={shown.length > 0 && shown.every(r => selected.includes(r.rig_id))} onChange={e => setSelected(e.target.checked ? [...new Set([...selected, ...shown.map(r => r.rig_id)])] : selected.filter(id => !shown.some(r => r.rig_id === id)))}/></th><th>Rig</th><th>{t("Connexion", "Connection")}</th><th>{t("Minage", "Mining")}</th><th>{t("Version / mise à jour", "Version / update")}</th><th>{t("Débit / algorithme", "Hashrate / algorithm")}</th><th>{t("Puissance GPU", "GPU power")}</th></tr></thead><tbody>{shown.map(r => { const totals = fleetSummary([r]); return <tr key={r.rig_id}><td><input type="checkbox" aria-label={t(`Sélectionner ${r.name}`, `Select ${r.name}`)} checked={selected.includes(r.rig_id)} onChange={e => setSelected(old => e.target.checked ? [...new Set([...old, r.rig_id])] : old.filter(id => id !== r.rig_id))}/></td><td><button type="button" className="fleet-rig-name" onClick={() => openRig(r)}>{r.name}</button><small>{r.snapshot?.os || "—"}</small></td><td><Badge kind={fresh(r) ? "good" : "warning"}>{connectionLabel(r,t)}</Badge><small>{age(r.last_seen, t)}</small></td><td>{rigMode(r, t)}</td><td><UpdateInfo rig={r} t={t}/></td><td>{Object.entries(totals.algorithms).map(([a, v]) => <div key={a}><strong>{fleetHashrate(v)}</strong><small>{a}</small></div>)}{!Object.keys(totals.algorithms).length && "—"}</td><td>{totals.power === null ? "—" : `${Math.round(totals.power)} W`}</td></tr>; })}</tbody></table></div>}
       {!canControl && <p className="fleet-rig-line" style={{ marginTop: 12 }}>{t("Le serveur n’autorise pas les commandes de flotte pour cet accès.", "The server does not allow fleet commands for this access.")}</p>}
     </>}
     {detail && <section className="fleet-detail" aria-label={t(`Détails de ${detail.name}`, `${detail.name} details`)}><header className="fleet-detail-head"><div><div className="fleet-kicker">{t("Rig sélectionné", "Selected rig")}</div><h2>{detail.name}</h2><p>{detail.snapshot?.os || "—"} · {detail.snapshot?.local_time || "—"} · {detail.snapshot?.timezone || "—"}</p></div><div className="fleet-actions">{canRevoke(detail) && <button type="button" className="fleet-btn fleet-small fleet-danger" disabled={busy} onClick={() => setRevokeRig(detail)}>{t("Retirer ce rig…", "Remove this rig…")}</button>}<button type="button" className="fleet-btn fleet-small" onClick={() => setDetailId(null)}>{t("Fermer les détails", "Close details")}</button></div></header>
-      <div className="fleet-detail-tabs" role="tablist" aria-label={t("Détails du rig", "Rig details")}>{([['profiles', t("Profils", "Profiles")], ['gpu', 'GPU'], ['schedules', t("Plannings", "Schedules")], ['logs', t("Journal", "Logs")]] as const).map(([id, label]) => <button type="button" key={id} id={`fleet-tab-${id}`} role="tab" aria-controls="fleet-detail-panel" aria-selected={detailTab === id} className="fleet-btn fleet-small" onClick={() => setDetailTab(id)}>{label}</button>)}</div>
+      <div className="fleet-detail-tabs" role="tablist" aria-label={t("Détails du rig", "Rig details")}>{([['profiles', t("Profils", "Profiles")], ['gpu', 'GPU'], ['schedules', t("Plannings", "Schedules")], ['logs', t("Journal", "Logs")], ['updates', t("Mises à jour", "Updates")]] as const).map(([id, label]) => <button type="button" key={id} id={`fleet-tab-${id}`} role="tab" aria-controls="fleet-detail-panel" aria-selected={detailTab === id} className="fleet-btn fleet-small" onClick={() => setDetailTab(id)}>{label}</button>)}</div>
       <div className="fleet-detail-body" id="fleet-detail-panel" role="tabpanel" aria-labelledby={`fleet-tab-${detailTab}`}>
+        {detailTab === "updates" && <><UpdateInfo rig={detail} t={t}/><div className="fleet-actions"><button type="button" className="fleet-btn" disabled={busy || !canControl || !fresh(detail) || detail.snapshot?.updates?.protocol !== 1} onClick={() => void sendOperations([{ rig: detail, operation: { action: "update_check" } }])}>{t("Vérifier ce rig", "Check this rig")}</button><button type="button" className="fleet-btn fleet-primary" disabled={busy || !canControl || !!fleetUpdatePreflight(detail)} onClick={() => setUpdateReview([detail.rig_id])}>{t("Mettre à jour ce rig…", "Update this rig…")}</button></div><div className="fleet-callout warning">{t("La mise à jour interrompt le minage et redémarre MinerDesk. Les plannings locaux reprennent selon leurs propres règles après le redémarrage.", "Updating interrupts mining and restarts MinerDesk. Local schedules resume according to their own rules after restart.")}</div></>}
         {detailTab === "logs" && activeLogReceipt && ["failed", "expired"].includes(activeLogReceipt.state) && <div className="fleet-callout error" role="alert">{receiptLabel(activeLogReceipt,t)} · {activeLogReceipt.error || t("Le journal n’a pas pu être reçu.", "The log could not be retrieved.")}</div>}
         {!fresh(detail) && <div className="fleet-callout warning">{unavailableReason(detail,t)}</div>}
         {detailTab === "profiles" && <>
@@ -317,8 +412,9 @@ export default function Fleet({ language, request, localName }: FleetProps) {
         {detailTab === "schedules" && <><div className="fleet-section-head"><h3>{t("Planning local", "Local schedules")}</h3><button type="button" className="fleet-btn fleet-small" disabled={busy || !canControl || !fresh(detail) || !detail.config} onClick={() => setScheduleEditor({ rig: detail, config: detail.config!, schedules: detail.config!.schedules.map(s => ({ ...s, days: [...s.days], miner_ids: [...s.miner_ids] })) })}>{t("Modifier les plannings", "Edit schedules")}</button></div><div className="fleet-profile-list">{detail.config?.schedules.map(s => <div className="fleet-profile" key={s.id}><div><h3>{s.name}</h3><small>{s.start}–{s.end} · {t("jours", "days")} {s.days.join(', ')} · {detail.config!.timezone}</small><small>{s.miner_ids.length ? s.miner_ids.map(id => detail.config!.profiles.find(p => p.id === id)?.name || id).join(', ') : t("Aucun profil associé · inactif", "No profiles assigned · inactive")}</small></div><Badge kind={s.enabled ? "good" : ""}>{s.enabled ? t("Actif", "Enabled") : t("Désactivé", "Disabled")}</Badge></div>)}{!detail.config ? <p>{t("Configuration non confirmée : plannings indisponibles.", "Unconfirmed configuration: schedules unavailable.")}</p> : !detail.config.schedules.length && <p>{t("Aucun planning enregistré sur ce rig.", "No schedule saved on this rig.")}</p>}</div><small>{t("Les horaires utilisent le fuseau et l’horloge de l’agent, pas ceux de ce navigateur.", "Schedules use the agent's clock and timezone, not this browser's.")}</small></>}
         {detailTab === "logs" && <><div className="fleet-toolbar"><label className="fleet-field fleet-search">{t("Profil", "Profile")}<select value={logsProfile} onChange={e => { setLogsProfile(e.target.value); setLogs(null); setLogReceipt(null); }}><option value="">{t("Choisir un profil", "Select profile")}</option>{detail.snapshot?.status.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label><button type="button" className="fleet-btn" disabled={busy || !canControl || !fresh(detail) || !logsProfile} onClick={() => void loadLogs(detail)}>{t("Charger le journal", "Load logs")}</button></div>{logs ? <pre className="fleet-logs">{logs.lines.map(line => `${new Date(millis(line.ts)).toLocaleTimeString()} [${line.stream}] ${line.text}`).join('\n') || t("Journal vide", "Empty log")}</pre> : <div className="fleet-callout">{logReceipt ? t("Demande envoyée ; le résultat apparaîtra à réception de l’agent.", "Request queued; the result appears after the agent responds.") : t("Le journal est chargé uniquement à votre demande. Les données sensibles sont masquées par l’agent.", "Logs load only when requested. The agent redacts sensitive data.")}</div>}</>}
       </div></section>}
-    {results.length > 0 && <section className="fleet-detail" aria-label={t("Résultats des commandes", "Command results")}><header className="fleet-detail-head"><h2>{t("Résultats par rig", "Results by rig")}</h2><button type="button" className="fleet-btn fleet-small" onClick={() => setResults([])}>{t("Masquer", "Dismiss")}</button></header><div className="fleet-detail-body fleet-results"><ul>{results.map((r, index) => { const receipt = view?.commands.find(c => c.id === r.receipt?.id) || r.receipt; return <li key={r.receipt?.id || index}><div className="fleet-section-head"><strong>{r.name}</strong><Badge kind={r.error || receipt?.state === "failed" || receipt?.state === "expired" ? "error" : receipt?.state === "succeeded" ? "good" : ""}>{r.error ? t("Requête refusée", "Request failed") : receipt ? receiptLabel(receipt, t) : "—"}</Badge></div>{(r.error || receipt?.error) && <p className="fleet-error-text">{r.error || receipt?.error}</p>}{receipt?.result !== null && receipt?.result !== undefined && receipt.state === "succeeded" && <div><p>{resultSummary(receipt.result,t)}</p><details><summary>{t("Détails du diagnostic", "Diagnostic details")}</summary><pre className="fleet-logs">{typeof receipt.result === "string" ? receipt.result : JSON.stringify(receipt.result, null, 2)}</pre></details></div>}</li>; })}</ul></div></section>}
+    {results.length > 0 && <section className="fleet-detail" aria-label={t("Résultats des commandes", "Command results")}><header className="fleet-detail-head"><h2>{t("Résultats par rig", "Results by rig")}</h2><button type="button" className="fleet-btn fleet-small" onClick={() => setResults([])}>{t("Masquer", "Dismiss")}</button></header><div className="fleet-detail-body fleet-results"><ul>{results.map((r, index) => { const receipt = view?.commands.find(c => c.id === r.receipt?.id) || r.receipt; return <li key={r.receipt?.id || index}><div className="fleet-section-head"><strong>{r.name}</strong><Badge kind={r.error || receipt?.state === "failed" || receipt?.state === "expired" ? "error" : receipt?.state === "succeeded" ? "good" : ""}>{r.error ? t("Requête refusée", "Request failed") : receipt ? receiptLabel(receipt, t) : "—"}</Badge></div>{(r.error || receipt?.error) && <p className="fleet-error-text">{r.error || receipt?.error}</p>}{receipt?.result !== null && receipt?.result !== undefined && receipt.state === "succeeded" && <div><p>{r.updateCheck ? t("Vérification reçue. Consultez la version proposée dans le dernier état du rig ; aucune installation n’a été demandée.", "Check received. See the offered version in the latest rig snapshot; no installation was requested.") : resultSummary(receipt.result,t)}</p><details><summary>{t("Détails du diagnostic", "Diagnostic details")}</summary><pre className="fleet-logs">{typeof receipt.result === "string" ? receipt.result : JSON.stringify(receipt.result, null, 2)}</pre></details></div>}</li>; })}</ul></div></section>}
     {(error || notice) && <div className={`fleet-callout ${error ? 'error' : 'success'}`} style={{ marginTop: 15 }} role={error ? "alert" : "status"}>{error || notice}</div>}
+    {updateReview && view && <UpdateReview rigs={rigs} rigIds={updateReview} coordinatorId={view.coordinator_rig_id || (view.setup.mode === "hub" ? view.setup.rig_id : "")} t={t} busy={busy} canControl={canControl} error={error} onClose={() => setUpdateReview(null)} onConfirm={(ids, version) => void startRollout(ids, version)}/>}
     {review && view && <Dialog t={t} title={t("Vérifier les actions groupées", "Review bulk actions")} busy={busy} onClose={() => setReview(null)} footer={<><button type="button" className="fleet-btn" disabled={busy} onClick={() => setReview(null)}>{t("Annuler", "Cancel")}</button><button type="button" className="fleet-btn fleet-primary" disabled={busy || !review.targets.some(target => { const r = rigs.find(x => x.rig_id === target.rig_id); return r && !fleetPreflight(r, target.profile_id, review.action); })} onClick={() => void sendOperations(review.targets.flatMap(target => { const rig = rigs.find(r => r.rig_id === target.rig_id); return rig && !fleetPreflight(rig, target.profile_id, review.action) ? [{ rig, operation: { action: review.action, profile_id: target.profile_id } }] : []; }))}>{busy ? t("Envoi…", "Sending…") : t("Confirmer les rigs prêts", "Confirm ready rigs")}</button></>}>
       <label className="fleet-field">{t("Action", "Action")}<select value={review.action} disabled={busy} onChange={e => setReview({ ...review, action: e.target.value as FleetAction })}>{(["start", "stop", "restart", "resume", "force_start"] as FleetAction[]).map(a => <option key={a} value={a}>{actionLabel(a, t)}</option>)}</select></label>
       <div className={`fleet-callout ${review.action === "force_start" ? 'warning' : ''}`}>{review.action === "force_start" ? t("Dérogation explicite : les profils seront lancés hors planning pour cette session. Les plannings enregistrés restent inchangés.", "Explicit override: profiles will run outside schedules for this session. Saved schedules remain unchanged.") : t("Les démarrages et redémarrages respectent les plannings locaux. Les rigs exclus ne reçoivent aucune commande.", "Starts and restarts respect local schedules. Excluded rigs receive no command.")}</div>
@@ -335,6 +431,38 @@ export default function Fleet({ language, request, localName }: FleetProps) {
     })}>{t("Révoquer l’accès", "Revoke access")}</button></>}><p>{t("L’accès de ce rig au coordinateur sera révoqué et il sera retiré de cette flotte. Son minage local et ses plannings continuent ; aucune commande d’arrêt n’est envoyée.", "This rig's coordinator access will be revoked and it will be removed from this fleet. Local mining and schedules continue; no stop command is sent.")}</p><div className="fleet-callout warning">{t("Pour le reconnecter, il faudra une nouvelle association avec une clé temporaire.", "Reconnecting requires a new pairing with a temporary key.")}</div></Dialog>}
     {disconnect && view && <Dialog t={t} title={t("Dissocier cette flotte ?", "Disconnect this fleet?")} busy={busy} onClose={() => setDisconnect(false)} footer={<><button type="button" className="fleet-btn" onClick={() => setDisconnect(false)} disabled={busy}>{t("Annuler", "Cancel")}</button><button type="button" className="fleet-btn fleet-danger" disabled={busy || !localSetup} onClick={() => void mutate<FleetView>(view.setup.mode === "hub" ? "/api/fleet/disable" : "/api/fleet/leave", json({}), result => { setView(decodeFleetView(result)); setDisconnect(false); setInvitation(null); })}>{t("Confirmer la déconnexion", "Confirm disconnect")}</button></>}><p>{t("La connexion de flotte sera supprimée sur cette machine. Les agents restent responsables de leurs profils et plannings locaux.", "This machine's fleet connection will be removed. Agents remain responsible for their local profiles and schedules.")}</p></Dialog>}
   </section>;
+}
+
+function RolloutStatus({ rollout, rigs, t, busy, canControl, onCancel }: { rollout: FleetRollout; rigs: FleetRig[]; t: Text; busy: boolean; canControl: boolean; onCancel: () => void }) {
+  const active = ["running", "waiting_for_reconnect"].includes(rollout.state);
+  return <section className="fleet-rollout" aria-label={t(`Déploiement ${rollout.expected_version}`, `Rollout ${rollout.expected_version}`)}>
+    <div className="fleet-section-head"><div><h3>{t("Déploiement vers", "Rollout to")} {rollout.expected_version}</h3><small>{rollout.state === "completed" ? t("Toutes les versions ont été confirmées après reconnexion.", "All versions were confirmed after reconnect.") : updateStage(rollout.state, t)}</small></div>
+      {active && rollout.rigs.some(r => r.state === "queued") && <button type="button" className="fleet-btn fleet-small" disabled={busy || !canControl} onClick={onCancel}>{t("Annuler le restant", "Cancel remaining")}</button>}
+    </div><ol className="fleet-rollout-list">{rollout.rigs.map(item => <li key={item.rig_id}><div><strong>{rigs.find(r => r.rig_id === item.rig_id)?.name || item.rig_id}</strong><small>{item.rig_id}</small></div><div><Badge kind={item.state === "updated" ? "good" : item.state === "failed" ? "error" : ""}>{updateStage(item.state, t)}</Badge>{item.error && <small className="fleet-error-text">{item.error}</small>}</div></li>)}</ol>
+    {rollout.error && <p className="fleet-error-text">{rollout.error}</p>}
+    <small>{t("L’annulation concerne uniquement les rigs encore en file. Une installation déjà en cours continue. Une commande acceptée ne confirme jamais la version installée.", "Cancellation applies only to rigs still queued. An installation already in progress continues. An accepted command never confirms the installed version.")}</small>
+  </section>;
+}
+
+function UpdateReview({ rigs, rigIds, coordinatorId, t, busy, canControl, error, onClose, onConfirm }: { rigs: FleetRig[]; rigIds: string[]; coordinatorId: string; t: Text; busy: boolean; canControl: boolean; error: string; onClose: () => void; onConfirm: (ids: string[], version: string) => void }) {
+  const targets = rigIds.map(id => rigs.find(r => r.rig_id === id)).filter((r): r is FleetRig => !!r)
+    .sort((a, b) => Number(a.rig_id === coordinatorId) - Number(b.rig_id === coordinatorId));
+  const versions = [...new Set(targets.flatMap(r => r.snapshot?.updates?.available_version ? [r.snapshot.updates.available_version] : []))];
+  const [version, setVersion] = useState(versions.length === 1 ? versions[0] : "");
+  const [acknowledged, setAcknowledged] = useState("");
+  const ready = version ? targets.filter(r => !fleetUpdatePreflight(r, version)) : [];
+  const signature = JSON.stringify([version, ready.map(r => r.rig_id)]);
+  useEffect(() => setAcknowledged(""), [signature]);
+  const confirmed = acknowledged === signature;
+  return <Dialog t={t} title={t("Vérifier la mise à jour distante", "Review remote update")} busy={busy} onClose={onClose} footer={<><button type="button" className="fleet-btn" disabled={busy} onClick={onClose}>{t("Annuler", "Cancel")}</button><button type="button" className="fleet-btn fleet-primary" disabled={busy || !canControl || !ready.length || !confirmed} onClick={() => onConfirm(ready.map(r => r.rig_id), version)}>{t("Confirmer le déploiement", "Confirm rollout")}</button></>}>
+    <label className="fleet-field">{t("Version cible de MinerDesk", "Target MinerDesk version")}<select value={version} disabled={busy} onChange={e => { setVersion(e.target.value); setAcknowledged(""); }}><option value="">{t("Choisir la version vérifiée", "Select the checked version")}</option>{versions.map(v => <option key={v} value={v}>{v}</option>)}</select></label>
+    <div className="fleet-callout warning">{t("Le minage sera interrompu sur chaque rig mis à jour et MinerDesk redémarrera. Les mises à jour s’exécutent une par une, le coordinateur en dernier. Le déploiement attend la reconnexion et la version attendue avant de passer au suivant ; le premier échec arrête le restant.", "Mining will be interrupted on each updated rig and MinerDesk will restart. Updates run one at a time, coordinator last. The rollout waits for reconnect and the expected version before continuing; the first failure stops the remaining rollout.")}</div>
+    <h3>{t("Rigs examinés", "Reviewed rigs")} · {ready.length} {t("prêt(s)", "ready")}</h3>
+    <div className="fleet-review-list">{targets.map(rig => { const exclusion = version ? fleetUpdatePreflight(rig, version) : "check_required"; return <div className="fleet-review-row" key={rig.rig_id}><div><strong>{rig.name}</strong><small>{rig.rig_id}</small><small>{rig.snapshot?.version || "—"} → {version || "—"}{rig.rig_id === coordinatorId ? t(" · coordinateur en dernier", " · coordinator last") : ""}</small></div><div><Badge kind={exclusion ? "warning" : "good"}>{exclusion ? t("Exclu", "Excluded") : t("Inclus", "Included")}</Badge><small>{exclusion ? updateReason(exclusion, t) : t("Prêt · dernière vérification par l’agent avant installation", "Ready · agent checks again before installation")}</small></div></div>; })}</div>
+    {rigIds.some(id => !targets.some(r => r.rig_id === id)) && <p className="fleet-error-text">{t("Un rig sélectionné n’est plus associé et sera exclu.", "A selected rig is no longer paired and will be excluded.")}</p>}
+    <label className="fleet-check fleet-update-confirm"><input type="checkbox" checked={confirmed} disabled={busy || !ready.length} onChange={e => setAcknowledged(e.target.checked ? signature : "")}/>{t(`Je confirme la version ${version || "—"} pour les ${ready.length} rig(s) inclus ci-dessus et l’interruption de leur minage.`, `I confirm version ${version || "—"} for the ${ready.length} included rig(s) listed above and the interruption of their mining.`)}</label>
+    {error && <p className="fleet-error-text" role="alert">{error}</p>}
+  </Dialog>;
 }
 
 function ProfileEditor({ editor, t, busy, error, onClose, onChange, onSave }: { editor: Editor; t: Text; busy: boolean; error: string; onClose: () => void; onChange: (e: Editor) => void; onSave: (patch: FleetProfilePatch) => void }) {

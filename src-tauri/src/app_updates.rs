@@ -1,5 +1,6 @@
-//! Application updates are desktop-only. The web API exposes notification data,
-//! never an installer command, URL override, public key override or arbitrary file.
+//! Ordinary application-update banners install only through the desktop.
+//! Fleet uses a separate explicit local policy and independently verified worker;
+//! neither path accepts a publisher key, arbitrary command or URL override.
 use serde::{Deserialize, Serialize};
 use std::{sync::{atomic::{AtomicBool, Ordering}, Mutex, OnceLock}, time::{Duration, Instant}};
 use tauri::{ipc::Channel, Manager};

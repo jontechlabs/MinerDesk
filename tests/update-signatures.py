@@ -1,5 +1,6 @@
 """Exercise real Tauri signing and production release verification with throwaway keys."""
 import importlib.util
+import base64
 import os
 from pathlib import Path
 import subprocess
@@ -19,18 +20,32 @@ class Signatures(unittest.TestCase):
             result = subprocess.run(cli+['generate','--ci','-p','throwaway-test-only','-w',str(key)],capture_output=True)
             self.assertEqual(result.returncode,0,'Test key generation failed')
             package = base/'test.AppImage'; package.write_bytes(b'Test bytes only; never executed.\n')
-            result = subprocess.run(cli+['sign',str(package)],env=environment,capture_output=True)
+            result = subprocess.run(cli+['sign','--app-version','0.8.2',str(package)],env=environment,capture_output=True)
             self.assertEqual(result.returncode,0,'Test signing failed')
             pubkey = (base/'test.key.pub').read_text().strip()
-            release.verify_update(package,pubkey)
+            release.verify_update(package,pubkey,'0.8.2')
+            with self.assertRaisesRegex(RuntimeError, 'version differs'):
+                release.verify_update(package,pubkey,'0.8.3')
+            signature_path = package.with_name(package.name+'.sig')
+            signature = signature_path.read_text()
+            forged = base64.b64decode(signature).replace(b'version:0.8.2',b'version:0.8.3')
+            signature_path.write_text(base64.b64encode(forged).decode())
+            with self.assertRaises(RuntimeError): release.verify_update(package,pubkey,'0.8.3')
+            # Legacy unversioned signatures remain cryptographically valid but
+            # cannot authorize an autonomous version-specific update.
+            result = subprocess.run(cli+['sign',str(package)],env=environment,capture_output=True)
+            self.assertEqual(result.returncode,0)
+            with self.assertRaisesRegex(RuntimeError, 'version differs'):
+                release.verify_update(package,pubkey,'0.8.2')
+            signature_path.write_text(signature)
             package.write_bytes(package.read_bytes()+b'tampered')
-            with self.assertRaises(RuntimeError): release.verify_update(package,pubkey)
+            with self.assertRaises(RuntimeError): release.verify_update(package,pubkey,'0.8.2')
             package.write_bytes(b'Test bytes only; never executed.\n')
             other = base/'other.key'
             result = subprocess.run(cli+['generate','--ci','-p','throwaway-test-only','-w',str(other)],capture_output=True)
             self.assertEqual(result.returncode,0)
-            with self.assertRaises(RuntimeError): release.verify_update(package,(base/'other.key.pub').read_text().strip())
+            with self.assertRaises(RuntimeError): release.verify_update(package,(base/'other.key.pub').read_text().strip(),'0.8.2')
             package.with_name(package.name+'.sig').write_text('invalid-base64')
-            with self.assertRaises(Exception): release.verify_update(package,pubkey)
+            with self.assertRaises(Exception): release.verify_update(package,pubkey,'0.8.2')
 
 if __name__ == '__main__': unittest.main()

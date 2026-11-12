@@ -4,6 +4,8 @@
 
 Fleet lets paired MinerDesk instances see and control their Windows and Linux rigs through one coordinator. Each rig keeps its own mining engines, profiles, scheduler and operating-system permissions. The coordinator organizes remote access; it does not run another rig's miner.
 
+From **0.8.2**, optionally enable [Fleet software updates](FLEET-UPDATES.md) once on each rig to deploy future signed upgrades centrally, with local system authorization where required. The option is off by default and older rigs need the initial feature upgrade locally.
+
 Introduced in **0.8.0**, Fleet is **off by default**. It activates only when you choose to create or join a group.
 
 ### Set up a coordinator
@@ -67,6 +69,8 @@ Fleet identities, TLS material, membership credentials and receipts live in **`f
 ## Français
 
 Fleet permet de surveiller et piloter des rigs Windows et Linux depuis les instances MinerDesk associées à un même coordinateur. Chaque rig conserve ses mineurs, sa configuration, ses horaires et ses autorisations système.
+
+Depuis **0.8.2**, une activation locale unique permet de déployer les futures [mises à jour signées depuis Fleet](FLEET-UPDATES.md), avec autorisation système initiale si nécessaire. Cette option est désactivée par défaut ; les anciens rigs doivent d'abord recevoir cette fonctionnalité localement.
 
 Ajouté dans la version **0.8.0**, Fleet est **désactivé par défaut**. Il s'active lorsque vous choisissez de créer ou de rejoindre un groupe.
 

@@ -1,5 +1,5 @@
 //! Local credentials are separate from AppConfig and never exported by DTOs.
-use super::protocol::{CommandReceipt, FleetCommand};
+use super::protocol::{CommandReceipt, FleetCommand, UpdateRollout};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -33,6 +33,12 @@ pub(crate) struct StoredCommand {
     pub receipt: CommandReceipt,
 }
 #[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct StoredRollout {
+    pub view: UpdateRollout,
+    pub command_id: Option<String>,
+    pub deadline_at: u64,
+}
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct HubRecord {
     pub enabled: bool,
     pub fleet_id: String,
@@ -45,6 +51,8 @@ pub(crate) struct HubRecord {
     pub invitations: Vec<PendingInvitation>,
     pub rigs: BTreeMap<String, RegisteredRig>,
     pub commands: BTreeMap<String, StoredCommand>,
+    #[serde(default)]
+    pub rollouts: BTreeMap<String, StoredRollout>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Membership {

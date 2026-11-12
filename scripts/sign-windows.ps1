@@ -42,6 +42,7 @@ try {
             'minerdesk.exe' { 'desktop' }
             'minerdesk-headless.exe' { 'cli' }
             'minerdesk-backend.exe' { 'backend' }
+            'minerdesk-update-helper.exe' { 'update-helper' }
             'maintenance.ps1' { 'maintenance' }
             'maintenance-common.ps1' { 'maintenance-common' }
             default {

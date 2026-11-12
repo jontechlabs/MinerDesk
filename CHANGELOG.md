@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.2
+
+- Add optional, default-off Fleet software updates with explicit local activation and per-rig eligibility/progress.
+- Persist confirmed rolling plans, update the coordinator last, wait for a fresh target-version report and stop remaining targets on failure. Cancel only work not already committed.
+- Add a bounded detached update worker for registered Windows, authorized Debian and writable AppImage installations. Preserve original user/session/configuration context and attempt agent relaunch after post-exit installation/reporting failures.
+- Independently verify official artifacts and their authenticated version before privileged installation; stage protected copies and stop mining only after verification and worker readiness.
+- Add constrained UID-bound Debian enrollment/revocation without storing an administrator password. Keep policy separate from ordinary profile/config exports and preserve it across signed upgrades.
+- Package and verify the worker and maintenance resources; restore tested helper bytes and executable permissions after AppImage deployment. Include version-bound signatures in the stable release workflow.
+
 ## 0.8.1
 
 - Promote Fleet to the stable release channel with verified update assets for installed Windows, Debian and writable AppImage copies.

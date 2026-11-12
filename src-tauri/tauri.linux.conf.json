@@ -4,8 +4,16 @@
     "beforeBuildCommand": "npm run build && node scripts/prepare-linux-helper.mjs --release"
   },
   "bundle": {
-    "linux": { "deb": { "postRemoveScript": "linux-helper/postrm.sh" } },
-    "resources": ["resources/minerdesk-linux-helper", "resources/minerdesk-approved-helper"],
+    "linux": {
+      "deb": {
+        "postRemoveScript": "linux-helper/postrm.sh",
+        "files": { "/usr/lib/minerdesk/minerdesk-update-helper": "resources/minerdesk-update-helper" }
+      },
+      "appimage": {
+        "files": { "/usr/bin/minerdesk-update-helper": "resources/minerdesk-update-helper" }
+      }
+    },
+    "resources": ["resources/minerdesk-linux-helper", "resources/minerdesk-approved-helper", "resources/minerdesk-update-helper"],
     "targets": [
       "deb",
       "appimage"

@@ -1,0 +1,1 @@
+MinerDesk signed-update fixture; never execute.

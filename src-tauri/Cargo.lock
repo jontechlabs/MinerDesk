@@ -1378,6 +1378,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1f9e3d69d39e4862ffed03ed071a76f9a13ba1d9109d355b0f0aa6b15e393c4"
 dependencies = [
  "futures-core",
+ "futures-sink",
 ]
 
 [[package]]
@@ -2507,7 +2508,7 @@ dependencies = [
 
 [[package]]
 name = "minerdesk"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "axum",
  "axum-server",
@@ -2520,6 +2521,7 @@ dependencies = [
  "libc",
  "md5",
  "mime_guess",
+ "minerdesk-update-helper",
  "rcgen",
  "regex",
  "reqwest 0.12.28",
@@ -2548,10 +2550,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "minerdesk-update-helper"
+version = "0.8.2"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "minisign-verify 0.3.0",
+ "reqwest 0.12.28",
+ "semver",
+ "serde",
+ "serde_json",
+ "uuid",
+ "windows-sys 0.61.2",
+ "winreg",
+]
+
+[[package]]
 name = "minisign-verify"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22f9645cb765ea72b8111f36c522475d2daa0d22c957a9826437e97534bc4e9e"
+
+[[package]]
+name = "minisign-verify"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "871285dc19d8d0ebe0eef3d0e99a205f2a71363b122632cbbfa4a6c370a960ce"
 
 [[package]]
 name = "miniz_oxide"
@@ -3514,7 +3538,9 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "futures-channel",
  "futures-core",
+ "futures-util",
  "http",
  "http-body",
  "http-body-util",
@@ -4561,7 +4587,7 @@ dependencies = [
  "http",
  "infer",
  "log",
- "minisign-verify",
+ "minisign-verify 0.2.5",
  "osakit",
  "percent-encoding",
  "reqwest 0.13.5",
