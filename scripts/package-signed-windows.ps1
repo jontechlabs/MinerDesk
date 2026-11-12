@@ -8,7 +8,7 @@ $version = (Get-Content -LiteralPath (Join-Path $root 'package.json') -Raw | Con
 $build = Join-Path $root 'publish\windows-x64'
 $info = Get-Content -LiteralPath (Join-Path $build 'build-info.json') -Raw | ConvertFrom-Json
 if ($info.signing -ne 'authenticode-verified' -or $info.version -ne $version) { throw 'Only a verified signed build of the current version can be packaged.' }
-$files = @('MinerDesk.exe', 'minerdesk-headless.exe', 'minerdesk-backend.exe', "MinerDesk_${version}_x64-setup.exe")
+$files = @('MinerDesk.exe', 'minerdesk-headless.exe', 'minerdesk-backend.exe', 'minerdesk-update-helper.exe', 'maintenance.ps1', 'maintenance-common.ps1', "MinerDesk_${version}_x64-setup.exe")
 foreach ($name in $files) {
     $file = Join-Path $build $name
     Get-MdVerifiedSignature -Path $file -ExpectedPublisher $env:MD_SIGNING_PUBLISHER | Out-Null
@@ -17,9 +17,9 @@ foreach ($name in $files) {
 $out = Join-Path $root 'publish\signed-release'
 if (Test-Path -LiteralPath $out) { throw 'Signed release directory already exists. Use a fresh checkout.' }
 New-Item -ItemType Directory -Path $out | Out-Null
-$portable = @($files[0..2] | ForEach-Object { Join-Path $build $_ })
+$portable = @($files[0..5] | ForEach-Object { Join-Path $build $_ })
 Compress-Archive -LiteralPath $portable -DestinationPath (Join-Path $out "MinerDesk_${version}_windows-x64.zip")
-Copy-Item -LiteralPath (Join-Path $build $files[3]) -Destination $out
+Copy-Item -LiteralPath (Join-Path $build $files[6]) -Destination $out
 Copy-Item -LiteralPath (Join-Path $build 'build-info.json') -Destination (Join-Path $out 'WINDOWS-BUILD-INFO.json')
 Copy-Item -LiteralPath (Join-Path $build 'signing-receipts.jsonl') -Destination (Join-Path $out 'SIGNING-RECEIPTS.jsonl')
 $checksums = @(Get-ChildItem -LiteralPath $out -File | Sort-Object Name | ForEach-Object {

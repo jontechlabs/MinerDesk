@@ -76,6 +76,8 @@ struct Snapshot {
     status: Vec<Miner>,
     gpu_inventory: Vec<Device>,
     gpu_inventory_available: bool,
+    #[serde(default)]
+    updates: Option<crate::fleet_updates::UpdateStatus>,
 }
 #[derive(Serialize, Deserialize)]
 struct Profile {
@@ -146,6 +148,24 @@ pub fn snapshot(value: Value) -> Result<Value, String> {
         return Err("Agent snapshot exceeds display limits".into());
     }
     let mut ids = HashSet::new();
+    if let Some(update) = &parsed.updates {
+        let stable = |value: &str| value.len() <= 64 && semver::Version::parse(value)
+            .is_ok_and(|v| v.pre.is_empty() && v.build.is_empty() && v.to_string() == value);
+        if update.protocol != 1 || update.current_version != parsed.version
+            || !stable(&update.current_version)
+            || !update.available_version.as_ref().is_none_or(|v| stable(v))
+            || !text(&update.reason, 80)
+            || update.can_install && (!update.enabled || update.available_version.is_none())
+        { return Err("Invalid agent update capability".into()); }
+        if let Some(job) = &update.job {
+            if uuid::Uuid::parse_str(&job.id).is_err() || !stable(&job.expected_version)
+                || !["queued","checking","downloading","verifying","ready","stopping","installing","restarting","completed","failed","cancelled"].contains(&job.stage.as_str())
+                || job.downloaded > 1024 * 1024 * 1024
+                || job.total.is_some_and(|n| n > 1024 * 1024 * 1024 || n < job.downloaded)
+                || !job.error.as_ref().is_none_or(|e| text(e, 2048))
+            { return Err("Invalid agent update progress".into()); }
+        }
+    }
     for miner in &parsed.status {
         if !ident(&miner.id)
             || !ids.insert(&miner.id)

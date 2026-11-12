@@ -3,6 +3,7 @@ pub mod core;
 mod discovery;
 mod persistence;
 pub mod protocol;
+mod rollouts;
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -180,6 +181,17 @@ impl FleetManager {
         if let Err(ref error) = result {
             self.set_error(Some(error.clone()));
         }
+        let weak = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(3));
+            loop {
+                interval.tick().await;
+                let Some(manager) = weak.upgrade() else { break };
+                if let Err(error) = manager.tick_rollouts().await {
+                    manager.set_error(Some(error));
+                }
+            }
+        });
         result
     }
     fn stop_runtime(&self) {
@@ -289,6 +301,7 @@ impl FleetManager {
             invitations: vec![],
             rigs: BTreeMap::new(),
             commands: BTreeMap::new(),
+            rollouts: BTreeMap::new(),
         };
         // Port reservation is retained until the HTTPS server owns it.
         self.change(|d| {
@@ -514,6 +527,8 @@ impl FleetManager {
                 config,
             }],
             commands,
+            coordinator_rig_id: None,
+            rollouts: vec![],
             local_setup_allowed: false,
             controller_allowed: false,
         })
@@ -525,6 +540,9 @@ impl FleetManager {
             .filter(|h| h.enabled)
             .ok_or("Coordinator is disabled")?;
         let mut view = self.local_view().await?;
+        view.coordinator_rig_id = Some(data.rig_id);
+        view.rollouts = hub.rollouts.values().map(|r| r.view.clone()).collect();
+        view.rollouts.sort_by_key(|r| std::cmp::Reverse(r.created_at));
         for rig in hub.rigs.into_values() {
             view.rigs.push(RigView {
                 rig_id: rig.rig_id,
@@ -619,6 +637,9 @@ impl FleetManager {
             .ok_or_else(|| "Command receipt not found".into())
     }
     pub async fn command(&self, request: CommandRequest) -> Result<Vec<CommandReceipt>, String> {
+        if matches!(request.operation, FleetOperation::UpdateInstall { .. }) {
+            return Err("Use a confirmed Fleet update rollout to install software".into());
+        }
         let data = self.data()?;
         if let Some(member) = data.member {
             let response = transport::pinned_client(&member.certificate_pem)?
@@ -692,6 +713,13 @@ impl FleetManager {
                 receipt.state = "failed".into();
                 receipt.error =
                     Some("Rig is offline or not enrolled; no command was queued".into());
+            } else if matches!(command.operation, FleetOperation::UpdateCheck | FleetOperation::UpdateInstall { .. })
+                && id != local
+                && !data.hub.as_ref().and_then(|h| h.rigs.get(&id))
+                    .and_then(|r| r.snapshot.pointer("/updates/protocol")).and_then(Value::as_u64).is_some_and(|v| v == 1)
+            {
+                receipt.state = "failed".into();
+                receipt.error = Some("Upgrade this rig locally once to enable Fleet software updates".into());
             }
             commands.push(StoredCommand { command, receipt });
         }
@@ -702,31 +730,9 @@ impl FleetManager {
                     .as_mut()
                     .filter(|h| h.enabled)
                     .ok_or("Coordinator is disabled")?;
-                // An offline rig may never poll again. Expire its old work here
-                // too, so abandoned queue entries cannot permanently fill history.
-                for old in hub
-                    .commands
-                    .values_mut()
-                    .filter(|c| !c.receipt.terminal() && c.command.expires_at <= now())
-                {
-                    old.receipt.state = "expired".into();
-                    old.receipt.error = Some("Command expired before agent execution".into());
-                }
-                if hub.commands.len() > 512 {
-                    let mut terminal: Vec<_> = hub
-                        .commands
-                        .iter()
-                        .filter(|(_, c)| c.receipt.terminal())
-                        .map(|(id, c)| (id.clone(), c.command.created_at))
-                        .collect();
-                    terminal.sort_by_key(|c| c.1);
-                    for (id, _) in terminal
-                        .into_iter()
-                        .take(hub.commands.len().saturating_sub(384))
-                    {
-                        hub.commands.remove(&id);
-                    }
-                }
+                // Keep active rollout acknowledgements while pruning ordinary
+                // terminal history and expiring abandoned offline commands.
+                rollouts::prune_commands(hub);
                 if hub.commands.len() + commands.len() > 640 {
                     return Err(
                         "Fleet command history is full; wait for pending commands to finish".into(),

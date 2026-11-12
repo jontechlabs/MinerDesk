@@ -11,13 +11,15 @@ test('shared and Linux configuration do not inherit Windows resources or install
   }
   assert.deepEqual(linux.bundle.targets, ['deb', 'appimage']);
   assert.equal(base.bundle.resources, undefined);
-  assert.deepEqual(linux.bundle.resources, ['resources/minerdesk-linux-helper','resources/minerdesk-approved-helper']);
+  assert.deepEqual(linux.bundle.resources, ['resources/minerdesk-linux-helper','resources/minerdesk-approved-helper','resources/minerdesk-update-helper']);
   assert.equal(linux.bundle.linux.deb.postRemoveScript,'linux-helper/postrm.sh');
+  assert.deepEqual(linux.bundle.linux.deb.files, {'/usr/lib/minerdesk/minerdesk-update-helper': 'resources/minerdesk-update-helper'});
+  assert.deepEqual(linux.bundle.linux.appimage.files, {'/usr/bin/minerdesk-update-helper': 'resources/minerdesk-update-helper'});
 });
 test('Windows overlay retains both executables and exact NSIS installation behavior', () => {
   const config = read('tauri.windows.conf.json');
   assert.deepEqual(config.bundle.targets, ['nsis']);
-  assert.deepEqual(config.bundle.resources, ['resources/minerdesk-headless.exe', 'resources/minerdesk-backend.exe']);
+  assert.deepEqual(config.bundle.resources, ['resources/minerdesk-headless.exe', 'resources/minerdesk-backend.exe', 'resources/minerdesk-update-helper.exe', 'resources/maintenance.ps1', 'resources/maintenance-common.ps1']);
   assert.deepEqual(config.bundle.windows.nsis, {
     installMode: 'perMachine', displayLanguageSelector: true,
     languages: ['English', 'French'], installerHooks: './windows/hooks.nsh'

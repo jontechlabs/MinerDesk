@@ -3,10 +3,12 @@ fn main() {
     if target_os == "linux" {
         // Clean library-test checkouts do not yet have the release helper.
         // Packaging builds the real executable before invoking Tauri.
-        let resource = std::path::Path::new("resources/minerdesk-linux-helper");
-        if !resource.exists() {
-            std::fs::create_dir_all("resources").expect("create Linux resources");
-            std::fs::write(resource, b"Build with scripts/prepare-linux-helper.mjs before packaging\n").expect("create non-executable placeholder");
+        for name in ["minerdesk-linux-helper", "minerdesk-approved-helper", "minerdesk-update-helper"] {
+            let resource = std::path::Path::new("resources").join(name);
+            if !resource.exists() {
+                std::fs::create_dir_all("resources").expect("create Linux resources");
+                std::fs::write(resource, b"Build real helpers before packaging\n").expect("create non-executable placeholder");
+            }
         }
     }
 

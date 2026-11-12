@@ -13,7 +13,7 @@ try {
     & npx.cmd tauri bundle --bundles nsis --config $config
     if ($LASTEXITCODE -ne 0) { throw 'Tauri custom signing callback integration probe failed.' }
     $records = @(Get-Content -LiteralPath $env:MD_SIGNING_PROBE_LOG | ForEach-Object { $_ | ConvertFrom-Json })
-    foreach ($name in @('minerdesk.exe', 'minerdesk-headless.exe', 'minerdesk-backend.exe', "MinerDesk_$($env:MD_SIGNING_VERSION)_x64-setup.exe", 'NSISdl.dll', 'StartMenu.dll', 'System.dll', 'nsDialogs.dll', 'nsis_tauri_utils.dll')) {
+    foreach ($name in @('minerdesk.exe', 'minerdesk-headless.exe', 'minerdesk-backend.exe', 'minerdesk-update-helper.exe', "MinerDesk_$($env:MD_SIGNING_VERSION)_x64-setup.exe", 'NSISdl.dll', 'StartMenu.dll', 'System.dll', 'nsDialogs.dll', 'nsis_tauri_utils.dll')) {
         if (-not ($records | Where-Object { $_.name -ieq $name })) { throw "Missing Tauri callback: $name" }
     }
     $uninstaller = @($records | Where-Object { $_.extension -ine '.dll' -and $_.name -inotlike 'minerdesk*' })

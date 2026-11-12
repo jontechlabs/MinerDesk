@@ -16,7 +16,7 @@ function production(name) {
   return mod.exports;
 }
 const Fleet = production('Fleet.tsx').default;
-const { decodeFleetView, decodeFleetLogs, fleetSummary, fleetPreflight, fleetEditablePatch, fleetRigFresh } = production('fleetTypes.ts');
+const { decodeFleetView, decodeFleetLogs, decodeFleetUpdateStatus, fleetSummary, fleetPreflight, fleetUpdatePreflight, fleetEditablePatch, fleetRigFresh } = production('fleetTypes.ts');
 const text = n => Array.isArray(n) ? n.map(text).join('') : typeof n === 'string' ? n : (n?.children || []).map(text).join('');
 function miner(id, algorithm = 'pearlhash', running = false) { return {
   id, name: 'Profile ' + id, engine: 'srbminer', algorithm, enabled: true, gpu_ids: '0', running,
@@ -39,6 +39,8 @@ function view(rigs = [], extra = {}) { return {
   setup: { rig_id: 'local', name: 'Local', mode: 'hub', hub_url: 'https://192.168.1.10:17889', fleet_id: 'fixture', hub_enabled: true, tls_fingerprint: 'fixture-fingerprint', error: null },
   rigs, commands: [], local_setup_allowed: true, controller_allowed: true, ...extra,
 }; }
+function updateStatus(extra = {}) { return { protocol:1,current_version:'0.8.2',available_version:'0.8.3',enabled:true,can_install:true,reason:'supported',root_required:false,root_enrolled:false,job:null,...extra }; }
+function updateRig(id, extra = {}) { const r=rig(id);r.snapshot.version='0.8.2';r.snapshot.updates=updateStatus(extra);return r; }
 async function render(data, request) {
   const calls = []; let instance;
   const api = request || (async (p,o) => { calls.push({p,o}); if (p === '/api/fleet') return data; throw new Error('Unexpected request ' + p); });
@@ -410,4 +412,121 @@ test('dialog typing and rerenders do not refocus Close or replace its key listen
     assert.equal(closeFocus,1);assert.equal(adds,1);assert.equal(removes,0);
     await act(async()=>listeners.keydown({key:'Escape'}));assert.equal(removes,1);assert.equal(restores,1);
   } finally {if(instance)await act(async()=>instance.unmount());global.document=originalDocument;global.HTMLElement=originalHTMLElement;}
+});
+
+test('update metadata fails closed without discarding valid old-peer mining telemetry', () => {
+  const old=rig('old');old.snapshot.version='0.8.1';
+  assert.equal(fleetUpdatePreflight(old),'bootstrap');
+  for(const bad of [updateStatus({enabled:'yes'}),updateStatus({protocol:2}),updateStatus({job:{stage:'installing'}})]){
+    const r=updateRig('bad');r.snapshot.updates=bad;
+    const decoded=decodeFleetView(view([r])).rigs[0];
+    assert.equal(decoded.online,true);assert.equal(fleetUpdatePreflight(decoded),'bootstrap');
+  }
+  assert.equal(decodeFleetUpdateStatus(updateStatus({job:{id:'j',expected_version:'0.8.3',stage:'downloading',downloaded:-1,total:null,error:null}})),null);
+  assert.equal(fleetUpdatePreflight(updateRig('off',{enabled:false})),'disabled');
+  assert.equal(fleetUpdatePreflight(updateRig('root',{can_install:false,reason:'root_enrollment_required'})),'root_enrollment_required');
+  assert.equal(fleetUpdatePreflight(updateRig('portable',{can_install:false,available_version:null,reason:'portable'})),'portable');
+  assert.equal(fleetUpdatePreflight(updateRig('changed'),'0.8.4'),'version_changed');
+  assert.equal(decodeFleetView(view()).rollouts.length,0);
+});
+
+test('update checks use the typed operation for fresh supported peers only and never install', async () => {
+  const current=updateRig('ready'),off=updateRig('offline'),old=rig('old');off.online=false;
+  const data=view([current,off,old]),calls=[];
+  const request=async(p,o)=>{calls.push({p,o});if(p==='/api/fleet')return data;
+    if(p==='/api/fleet/commands')return [{id:'check',rig_id:'ready',state:'succeeded',result:{available_version:'0.8.3'},error:null}];throw new Error(p);};
+  const {instance}=await render(data,request);
+  try {
+    await click(instance,'Check updates');
+    assert.deepEqual(calls.filter(c=>c.p==='/api/fleet/commands').map(c=>JSON.parse(c.o.body)),[{rig_ids:['ready'],operation:{action:'update_check'}}]);
+    assert.match(text(instance.toJSON()),/no installation was requested/);
+    assert.equal(calls.filter(c=>c.p.includes('/rollouts')).length,0);
+  } finally {await act(async()=>instance.unmount());}
+});
+
+test('review requires explicit target and mining-interruption confirmation, excludes ineligible rigs, and sends coordinator last', async () => {
+  const coordinator=updateRig('hub'),member=updateRig('member'),off=updateRig('off'),old=rig('old'),disabled=updateRig('disabled',{enabled:false}),unsupported=updateRig('portable',{can_install:false,reason:'portable'});
+  off.online=false;old.snapshot.version='0.8.1';
+  let data=view([coordinator,member,off,old,disabled,unsupported],{coordinator_rig_id:'hub',setup:{...view().setup,rig_id:'member',mode:'member'}});const calls=[];
+  const request=async(p,o)=>{calls.push({p,o});if(p==='/api/fleet')return data;
+    if(p==='/api/fleet/updates/rollouts')return {accepted:true};throw new Error(p);};
+  const {instance}=await render(data,request);
+  try {
+    await act(async()=>{for(const c of instance.root.findAllByType('input').filter(x=>x.props.type==='checkbox'))c.props.onChange({target:{checked:true}});});
+    await click(instance,'Update selected…');
+    const dialog=instance.root.findByProps({role:'dialog'}),reviewText=text(dialog);
+    assert.match(reviewText,/Mining will be interrupted/);assert.match(reviewText,/First install this new release locally/);
+    assert.match(reviewText,/Offline: excluded/);assert.match(reviewText,/Remote updates are off/);assert.match(reviewText,/portable installation/);
+    assert.match(reviewText,/Rig hubhub0.8.2 → 0.8.3 · coordinator last/);
+    assert.equal(button(instance,'Confirm rollout').props.disabled,true);
+    assert.equal(calls.filter(c=>c.p.includes('/rollouts')).length,0);
+    await act(async()=>dialog.findByType('input').props.onChange({target:{checked:true}}));
+    assert.equal(button(instance,'Confirm rollout').props.disabled,false);
+    await click(instance,'Confirm rollout');
+    assert.deepEqual(calls.filter(c=>c.p==='/api/fleet/updates/rollouts').map(c=>JSON.parse(c.o.body)),[{rig_ids:['member','hub'],expected_version:'0.8.3'}]);
+    assert.equal(calls.filter(c=>c.p==='/api/fleet/commands').length,0);
+    assert.match(text(instance.toJSON()),/acceptance does not prove installation/);
+  } finally {await act(async()=>instance.unmount());}
+});
+
+test('a changed offer invalidates an acknowledged review before submission', async () => {
+  let data=view([updateRig('member')]);const calls=[];
+  const request=async(p,o)=>{calls.push({p,o});if(p==='/api/fleet')return data;throw new Error(p);};
+  const {instance}=await render(data,request);
+  try {
+    await click(instance,'Rig member');await click(instance,'Updates');await click(instance,'Update this rig…');
+    await act(async()=>instance.root.findByProps({role:'dialog'}).findByType('input').props.onChange({target:{checked:true}}));
+    assert.equal(button(instance,'Confirm rollout').props.disabled,false);
+    data=view([updateRig('member',{available_version:'0.8.4'})]);await click(instance,'Refresh');
+    assert.equal(button(instance,'Confirm rollout').props.disabled,true);
+    assert.match(text(instance.root.findByProps({role:'dialog'})),/no longer matches the reviewed version/);
+    assert.equal(calls.filter(c=>c.p.includes('/rollouts')).length,0);
+  } finally {await act(async()=>instance.unmount());}
+});
+
+test('rollout acceptance and installer completion wait for reconnect confirmation; cancellation only targets the remaining plan', async () => {
+  const waiting=updateRig('first',{job:{id:'job',expected_version:'0.8.3',stage:'completed',downloaded:100,total:100,error:null}});
+  let data=view([waiting,updateRig('second')],{rollouts:[{id:'plan',expected_version:'0.8.3',state:'waiting_for_reconnect',created_at:1,updated_at:1,error:null,
+    rigs:[{rig_id:'first',state:'waiting_for_reconnect',error:null},{rig_id:'second',state:'queued',error:null}]}]});const calls=[];
+  const request=async(p,o)=>{calls.push({p,o});if(p==='/api/fleet')return data;
+    if(p==='/api/fleet/updates/rollouts/plan/cancel'){
+      data={...data,rollouts:[{...data.rollouts[0],state:'cancelled',rigs:[data.rollouts[0].rigs[0],{rig_id:'second',state:'cancelled',error:null}]}]};return {};
+    }throw new Error(p);};
+  const {instance}=await render(data,request);
+  try {
+    assert.match(text(instance.toJSON()),/awaiting version confirmation after reconnect/);
+    assert.match(text(instance.toJSON()),/Queued · not installed/);
+    assert(!text(instance.toJSON()).includes('Version confirmed after reconnect'));
+    await click(instance,'Cancel remaining');
+    const cancel=calls.filter(c=>c.p.endsWith('/cancel'));assert.equal(cancel.length,1);assert.equal(cancel[0].o.method,'POST');
+    assert.match(text(instance.toJSON()),/rig already updating continues/);
+    data={...data,rollouts:[{...data.rollouts[0],rigs:[{rig_id:'first',state:'updated',error:null},data.rollouts[0].rigs[1]]}]};
+    await click(instance,'Refresh');assert.match(text(instance.toJSON()),/Version confirmed after reconnect/);
+  } finally {await act(async()=>instance.unmount());}
+});
+
+test('local opt-in stays off by default and Linux enrollment never asks for an administrator password', async () => {
+  const data=view([updateRig('local')]);let policy=updateStatus({enabled:false,can_install:false,reason:'disabled',root_required:true,root_enrolled:false});const calls=[];
+  const request=async(p,o,timeout)=>{calls.push({p,o,timeout});if(p==='/api/fleet')return data;if(p==='/api/fleet/updates')return policy;
+    if(p==='/api/fleet/updates/enable'){policy={...policy,enabled:true,reason:'root_enrollment_required'};return policy;}
+    if(p==='/api/fleet/updates/enroll'){policy={...policy,root_enrolled:true,can_install:true,reason:'supported'};return policy;}
+    if(p==='/api/fleet/updates/revoke'){policy={...policy,root_enrolled:false,can_install:false,reason:'root_enrollment_required'};return policy;}
+    throw new Error(p);};
+  const {instance}=await render(data,request);
+  try {
+    assert.equal(calls.filter(c=>c.p==='/api/fleet/updates').length,0);
+    await click(instance,'Connection & fleet');
+    const panel=instance.root.findAllByType('section').find(n=>n.props.className?.includes('fleet-update-policy'));
+    assert.equal(panel.findByType('input').props.checked,false);
+    assert.equal(panel.findAllByType('input').filter(n=>n.props.type==='password').length,0);
+    await act(async()=>panel.findByType('input').props.onChange({target:{checked:true}}));
+    await click(instance,'Authorize once on Linux');assert.match(text(panel),/Helper authorized/);
+    assert.equal(calls.find(c=>c.p==='/api/fleet/updates/enroll').timeout,150000);
+    await click(instance,'Revoke Linux authorization');assert.match(text(panel),/Initial authorization required/);
+    assert.deepEqual(calls.filter(c=>c.p.startsWith('/api/fleet/updates/')&&!c.p.endsWith('/rollouts')).map(c=>[c.p,JSON.parse(c.o.body)]),[
+      ['/api/fleet/updates/enable',{}],['/api/fleet/updates/enroll',{}],['/api/fleet/updates/revoke',{}]]);
+  } finally {await act(async()=>instance.unmount());}
+  const remote=await render(view([],{local_setup_allowed:false}));
+  try {await click(remote.instance,'Connection & fleet');assert.equal(remote.calls.filter(c=>c.p==='/api/fleet/updates').length,0);assert.equal(button(remote.instance,'Authorize once on Linux'),undefined);}
+  finally {await act(async()=>remote.instance.unmount());}
 });

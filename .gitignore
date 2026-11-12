@@ -5,6 +5,9 @@ publish/
 src-tauri/resources/*.exe
 src-tauri/resources/minerdesk-linux-helper
 src-tauri/resources/minerdesk-approved-helper
+src-tauri/resources/minerdesk-update-helper
+src-tauri/resources/maintenance.ps1
+src-tauri/resources/maintenance-common.ps1
 src-tauri/gen/
 *.tsbuildinfo
 Thumbs.db

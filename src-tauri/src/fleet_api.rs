@@ -13,6 +13,9 @@ pub(super) fn routes() -> Router<WebState> {
         .route("/api/fleet/rigs/:id/config", get(rig_config))
         .route("/api/fleet/rigs/:id/revoke", post(revoke))
         .route("/api/fleet/commands/:id", get(receipt))
+        .route("/api/fleet/updates", get(updates_status))
+        .route("/api/fleet/updates/:action", post(updates_action))
+        .merge(super::fleet_rollouts_api::routes())
         .layer(DefaultBodyLimit::max(256 * 1024))
 }
 
@@ -70,7 +73,7 @@ fn same_remote_origin(headers: &HeaderMap) -> bool {
     origin.origin() == expected.origin()
 }
 
-fn access(headers: &HeaderMap, state: &WebState, setup: bool) -> Result<bool, Response> {
+pub(super) fn access(headers: &HeaderMap, state: &WebState, setup: bool) -> Result<bool, Response> {
     api_auth(headers, state)?;
     let local = local_setup(headers, state.core.config().web.desktop_api_port);
     if setup && !local {
@@ -82,7 +85,7 @@ fn access(headers: &HeaderMap, state: &WebState, setup: bool) -> Result<bool, Re
     Ok(local)
 }
 
-fn manager(state: &WebState) -> Result<&Arc<fleet::FleetManager>, Response> {
+pub(super) fn manager(state: &WebState) -> Result<&Arc<fleet::FleetManager>, Response> {
     state.fleet.as_ref().ok_or_else(|| {
         (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":"Fleet could not load its settings. Local mining is available; see the backend log for Fleet diagnostics."}))).into_response()
     })
@@ -94,7 +97,7 @@ fn parse<T: DeserializeOwned>(body: &Bytes) -> Result<T, Response> {
     })
 }
 
-fn response<T: Serialize>(result: Result<T, String>) -> Response {
+pub(super) fn response<T: Serialize>(result: Result<T, String>) -> Response {
     match result {
         Ok(value) => Json(value).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, Json(json!({"error":error}))).into_response(),
@@ -119,6 +122,36 @@ async fn view(AxumState(state): AxumState<WebState>, headers: HeaderMap) -> Resp
         Err(error) => return error,
     };
     view_response(service.view().await, local)
+}
+
+async fn updates_status(AxumState(state): AxumState<WebState>, headers: HeaderMap) -> Response {
+    if let Err(error) = access(&headers, &state, true) { return error; }
+    Json(state.core.fleet_updates.status()).into_response()
+}
+
+async fn updates_action(
+    AxumState(state): AxumState<WebState>, headers: HeaderMap,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>, AxumPath(action): AxumPath<String>,
+) -> Response {
+    if let Err(error) = access(&headers, &state, true) { return error; }
+    // Also inspect socket metadata directly at the privilege-changing endpoint.
+    // A remote configured API token never grants local update opt-in or root.
+    if !peer.ip().is_loopback() || !root_authorization_origin(&headers, state.core.config().web.desktop_api_port) {
+        return denied("Change remote update permissions in MinerDesk on this computer");
+    }
+    let service = Arc::clone(&state.core.fleet_updates);
+    match action.as_str() {
+        "enable" => response(service.set_enabled(true)),
+        "disable" => response(service.set_enabled(false)),
+        "enroll" | "revoke" => {
+            let revoke = action == "revoke";
+            match tokio::task::spawn_blocking(move || service.enrollment(revoke)).await {
+                Ok(result) => response(result),
+                Err(_) => response::<fleet_updates::UpdateStatus>(Err("Local update authorization could not finish".into())),
+            }
+        }
+        _ => (StatusCode::NOT_FOUND, Json(json!({"error":"Unknown local update operation"}))).into_response(),
+    }
 }
 
 async fn action(
@@ -247,6 +280,8 @@ async fn revoke(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{body::Body, Extension};
+    use tower::ServiceExt;
 
     fn headers(origin: Option<&str>, host: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -325,5 +360,26 @@ mod tests {
             api_auth(&values, &state).unwrap_err().status(),
             StatusCode::UNAUTHORIZED
         );
+    }
+
+    #[tokio::test]
+    async fn a_token_or_forged_header_cannot_enable_remote_update_policy() {
+        let directory = tempfile::tempdir().unwrap();
+        let core = CoreState::load_from_path(directory.path().join("config.json")).unwrap();
+        let state = WebState { core: Arc::clone(&core), fleet: None, token: Some("fixture-token".into()), headless: true,
+            desktop_owned: false, desktop_leases: Arc::new(Mutex::new(DesktopLeaseState::default())) };
+        for (peer, origin, expected) in [
+            ("192.0.2.15:45000", "http://127.0.0.1:17888", StatusCode::FORBIDDEN),
+            ("127.0.0.1:45000", "https://attacker.example", StatusCode::FORBIDDEN),
+            ("127.0.0.1:45000", "http://127.0.0.1:17888", StatusCode::OK),
+        ] {
+            let app = routes().with_state(state.clone()).layer(middleware::from_fn(mark_local_request))
+                .layer(Extension(ConnectInfo(peer.parse::<SocketAddr>().unwrap())));
+            let result = app.oneshot(Request::builder().method("POST").uri("/api/fleet/updates/enable")
+                .header("x-minerdesk-token", "fixture-token").header("x-minerdesk-local", "1")
+                .header(header::HOST, "127.0.0.1:17888").header(header::ORIGIN, origin).body(Body::empty()).unwrap()).await.unwrap();
+            assert_eq!(result.status(), expected, "{peer} {origin}");
+            assert_eq!(core.fleet_updates.status().enabled, expected == StatusCode::OK);
+        }
     }
 }

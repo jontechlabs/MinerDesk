@@ -45,6 +45,8 @@ mod peakminer;
 mod gpu_diagnostic_error;
 mod fleet;
 mod fleet_api;
+mod fleet_updates;
+mod fleet_rollouts_api;
 use gpu_diagnostic_error::GpuDiagnosticError;
 #[cfg(target_os = "linux")]
 mod linux_terminal;
@@ -649,6 +651,7 @@ pub struct CoreState {
     // Joining or hosting a Fleet explicitly opts the backend into autonomous
     // operation. Losing a UI or coordinator connection must not stop mining.
     fleet_enabled: AtomicBool,
+    pub(crate) fleet_updates: Arc<fleet_updates::FleetUpdates>,
     manual_schedule: Mutex<ManualScheduleControl>,
     config_path: PathBuf,
     config_io: Mutex<()>,
@@ -697,6 +700,7 @@ impl CoreState {
             lifecycle: Mutex::new(()),
             shutting_down: AtomicBool::new(false),
             fleet_enabled: AtomicBool::new(false),
+            fleet_updates: fleet_updates::FleetUpdates::new(&config_path),
             manual_schedule: Mutex::new(ManualScheduleControl::from_snapshot(stopped)),
             config_path,
             config_io: Mutex::new(()),
@@ -1538,6 +1542,7 @@ mod linux_mining_console_tests {
         Arc::new(CoreState {
             desktop_web: desktop_web::DesktopWeb::default(),
             lifecycle: Mutex::new(()), shutting_down: AtomicBool::new(false), fleet_enabled: AtomicBool::new(false),
+            fleet_updates: fleet_updates::FleetUpdates::new(&dir.join("config.json")),
             manual_schedule: Mutex::new(ManualScheduleControl::from_snapshot(StopSnapshot::new())),
             config_path: dir.join("config.json"), config_io: Mutex::new(()), config: RwLock::new(config),
             children: Mutex::new(HashMap::new()), runtime: Mutex::new(HashMap::new()), logs: Mutex::new(HashMap::new()),
@@ -4746,6 +4751,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .invoke_handler(tauri::generate_handler![check_app_update, install_app_update, external_links::open_github_downloads, pick_miner_file, get_system_info, get_security_status, set_firewall_exception, set_defender_exception, get_backend_status, get_backend_diagnostics, start_privileged_backend, restart_privileged_backend, repair_privileged_backend, set_start_with_windows, set_close_to_tray, focus_main_window])
         .setup(move |app| {
+            app.state::<Arc<CoreState>>().fleet_updates.attach_app(app.handle().clone());
             configure_windows_tray(app, &cfg)?;
             #[cfg(target_os = "windows")]
             start_power_action_focus_watch(app.handle().clone(), port);
@@ -4799,6 +4805,9 @@ pub fn run() {
 #[derive(Parser, Debug)]
 #[command(name = "minerdesk-headless", version, about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
+    /// Internal entry marker when an AppImage relaunches its standalone agent.
+    #[arg(long, hide = true)]
+    headless: bool,
     /// Explicit configuration file for an independent headless instance.
     #[arg(long)]
     config: Option<PathBuf>,

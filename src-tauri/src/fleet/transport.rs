@@ -103,6 +103,8 @@ pub(crate) async fn spawn_server(
         .route("/fleet/v1/leave", post(leave))
         .route("/fleet/v1/view", get(view))
         .route("/fleet/v1/commands", post(command))
+        .route("/fleet/v1/update-rollouts", post(create_rollout))
+        .route("/fleet/v1/update-rollouts/:id/cancel", post(cancel_rollout))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(manager.clone());
     let handle = axum_server::Handle::new();
@@ -217,10 +219,24 @@ async fn command(
     if let Err(error) = manager.authorize_controller(token) {
         return failure(StatusCode::UNAUTHORIZED, &error);
     }
+    if matches!(request.operation, FleetOperation::UpdateInstall { .. }) {
+        return failure(StatusCode::BAD_REQUEST, "Use a confirmed Fleet update rollout to install software");
+    }
     match manager.queue_commands(request).await {
         Ok(result) => Json(result).into_response(),
         Err(error) => failure(StatusCode::BAD_REQUEST, &error),
     }
+}
+
+async fn create_rollout(State(manager): State<Arc<FleetManager>>, headers: HeaderMap, Json(request): Json<UpdateRolloutRequest>) -> Response {
+    let token = match bearer(&headers) { Ok(t) => t, Err(e) => return e };
+    if let Err(error) = manager.authorize_controller(token) { return failure(StatusCode::UNAUTHORIZED, &error) }
+    match manager.create_local_rollout(request).await { Ok(view) => Json(view).into_response(), Err(error) => failure(StatusCode::BAD_REQUEST, &error) }
+}
+async fn cancel_rollout(State(manager): State<Arc<FleetManager>>, headers: HeaderMap, axum::extract::Path(id): axum::extract::Path<String>) -> Response {
+    let token = match bearer(&headers) { Ok(t) => t, Err(e) => return e };
+    if let Err(error) = manager.authorize_controller(token) { return failure(StatusCode::UNAUTHORIZED, &error) }
+    match manager.cancel_local_rollout(&id) { Ok(view) => Json(view).into_response(), Err(error) => failure(StatusCode::BAD_REQUEST, &error) }
 }
 
 #[cfg(test)]

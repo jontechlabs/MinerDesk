@@ -17,13 +17,14 @@ cargo build --locked --release --manifest-path src-tauri/Cargo.toml --bin minerd
 bundles="${MINERDESK_BUNDLES:-deb,appimage}"
 case "$bundles" in deb|appimage|deb,appimage) ;; *) echo 'Use deb, appimage, or deb,appimage' >&2; exit 1;; esac
 npx tauri build --bundles "$bundles"
+if [[ ",$bundles," == *,appimage,* ]]; then node scripts/finalize-linux-appimage.mjs; fi
 target="${CARGO_TARGET_DIR:-src-tauri/target}"
 version="$(node -p 'require("./package.json").version')"
 destination="publish/linux-x64"
 mkdir -p "$destination"
 stage="$(mktemp -d publish/.linux-staging-XXXXXX)"
 trap 'rm -rf -- "$stage"' EXIT
-cp "$target/release/minerdesk" "$target/release/minerdesk-headless" src-tauri/resources/minerdesk-linux-helper src-tauri/resources/minerdesk-approved-helper "$stage/"
+cp "$target/release/minerdesk" "$target/release/minerdesk-headless" src-tauri/resources/minerdesk-linux-helper src-tauri/resources/minerdesk-approved-helper src-tauri/resources/minerdesk-update-helper "$stage/"
 IFS=',' read -r -a formats <<< "$bundles"
 for format in "${formats[@]}"; do
   extension="$format"

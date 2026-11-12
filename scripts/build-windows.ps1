@@ -102,13 +102,26 @@ try {
     $backend = Join-Path $releaseDir 'minerdesk-backend.exe'
     Assert-MdBuiltExe $backend
     Assert-MdExeSubsystem -Path $backend -Expected 2
+    Write-Host 'Building the independent update worker...' -ForegroundColor Cyan
+    Invoke-MdBuildNative -File $cargo -Arguments @('build', '--locked', '--release', '--manifest-path', 'src-tauri\update-helper\Cargo.toml')
+    $helperTarget = Join-Path $root 'src-tauri\update-helper\target'
+    if ($env:CARGO_TARGET_DIR) { $helperTarget = [IO.Path]::GetFullPath($env:CARGO_TARGET_DIR) }
+    $updateHelper = Join-Path $helperTarget 'release\minerdesk-update-helper.exe'
+    Assert-MdBuiltExe $updateHelper
+    Assert-MdExeSubsystem -Path $updateHelper -Expected 3
+    $maintenance = Join-Path $root 'src-tauri\windows\maintenance.ps1'
+    $maintenanceCommon = Join-Path $root 'src-tauri\windows\maintenance-common.ps1'
     if ($RequireSignature) {
         $env:MD_NSIS_PLUGIN_ROOT = Join-Path $releaseDir 'nsis\x64\Plugins\x86-unicode'
         # Sign resources and installer helpers BEFORE embedding them in Setup.
-        & (Join-Path $PSScriptRoot 'sign-windows.ps1') -Path @($headless, $backend, (Join-Path $root 'src-tauri\windows\maintenance.ps1'), (Join-Path $root 'src-tauri\windows\maintenance-common.ps1'))
+        & (Join-Path $PSScriptRoot 'sign-windows.ps1') -Path @($headless, $backend, $updateHelper, $maintenance, $maintenanceCommon)
     }
     Copy-Item -LiteralPath $headless -Destination $resource -Force
     Copy-Item -LiteralPath $backend -Destination (Join-Path $root 'src-tauri\resources\minerdesk-backend.exe') -Force
+    # Copies are taken after signing: bundled resources have the verified bytes.
+    foreach ($file in @($updateHelper, $maintenance, $maintenanceCommon)) {
+        Copy-Item -LiteralPath $file -Destination (Join-Path $root ('src-tauri\resources\' + [IO.Path]::GetFileName($file))) -Force
+    }
 
     $expectedName = "MinerDesk_${version}_x64-setup.exe"
     $setup = Join-Path $releaseDir "bundle\nsis\$expectedName"
@@ -123,11 +136,11 @@ try {
     Assert-MdBuiltExe $setup
     $signatures = @()
     if ($RequireSignature) {
-        foreach ($file in @($desktop, $headless, $backend, $setup, $resource, (Join-Path $root 'src-tauri\resources\minerdesk-backend.exe'))) {
+        foreach ($file in @($desktop, $headless, $backend, $updateHelper, $maintenance, $maintenanceCommon, $setup, $resource, (Join-Path $root 'src-tauri\resources\minerdesk-backend.exe'), (Join-Path $root 'src-tauri\resources\minerdesk-update-helper.exe'), (Join-Path $root 'src-tauri\resources\maintenance.ps1'), (Join-Path $root 'src-tauri\resources\maintenance-common.ps1'))) {
             $signatures += Get-MdVerifiedSignature -Path $file -ExpectedPublisher $env:MD_SIGNING_PUBLISHER
         }
         $receipts = @(Get-Content -LiteralPath $env:MD_SIGNING_LOG | ForEach-Object { $_ | ConvertFrom-Json })
-        foreach ($role in @('desktop', 'cli', 'backend', 'maintenance', 'maintenance-common', 'installer', 'nsis-uninstaller')) {
+        foreach ($role in @('desktop', 'cli', 'backend', 'update-helper', 'maintenance', 'maintenance-common', 'installer', 'nsis-uninstaller')) {
             if (-not ($receipts | Where-Object { $_.role -eq $role })) { throw "Missing verified signing receipt: $role" }
         }
     }
@@ -139,9 +152,12 @@ try {
     Copy-Item -LiteralPath $desktop -Destination (Join-Path $stage 'MinerDesk.exe')
     Copy-Item -LiteralPath $headless -Destination (Join-Path $stage 'minerdesk-headless.exe')
     Copy-Item -LiteralPath $backend -Destination (Join-Path $stage 'minerdesk-backend.exe')
+    foreach ($file in @($updateHelper, $maintenance, $maintenanceCommon)) {
+        Copy-Item -LiteralPath $file -Destination (Join-Path $stage ([IO.Path]::GetFileName($file)))
+    }
     Copy-Item -LiteralPath $setup -Destination (Join-Path $stage $expectedName)
     $hashes = @{}
-    foreach ($file in Get-ChildItem -LiteralPath $stage -Filter '*.exe') {
+    foreach ($file in Get-ChildItem -LiteralPath $stage -File) {
         $hashes[$file.Name] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
     }
     $signingStatus = 'unsigned'
@@ -162,6 +178,13 @@ try {
     throw
 } finally {
     if ($signingConfig -and (Test-Path -LiteralPath $signingConfig)) { Remove-Item -LiteralPath $signingConfig -Force }
-    if ($stage -and (Test-Path -LiteralPath $stage)) { Remove-Item -LiteralPath $stage -Recurse -Force }
+    if ($stage -and (Test-Path -LiteralPath $stage)) {
+        $resolvedStage = [IO.Path]::GetFullPath($stage)
+        $expectedParent = [IO.Path]::GetFullPath((Join-Path $root 'publish'))
+        if ([IO.Path]::GetDirectoryName($resolvedStage) -ne $expectedParent -or -not [IO.Path]::GetFileName($resolvedStage).StartsWith('.staging-')) {
+            throw 'Refusing to remove a staging directory outside this build workspace.'
+        }
+        Remove-Item -LiteralPath $resolvedStage -Recurse -Force
+    }
     Pop-Location
 }

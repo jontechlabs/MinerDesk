@@ -172,6 +172,30 @@ def main():
                 pass
             checks.append("TLS trust required; an agent credential cannot control/read the fleet")
 
+            assert all(r["snapshot"]["updates"]["protocol"] == 1 for r in view["rigs"])
+            assert all(not r["snapshot"]["updates"]["enabled"] for r in view["rigs"])
+            call(a.url, "/api/fleet/updates/enable", {}, status=403,
+                 headers={"Origin": "https://attacker.example"})
+            assert not call(a.url, "/api/fleet/updates")["enabled"]
+            checks.append("Remote software updates are off by default and cross-origin opt-in is denied")
+
+            request = {"rig_ids": [identities[1]], "expected_version": "99.0.0"}
+            call(address, "/fleet/v1/update-rollouts", request,
+                 headers={"Authorization": "Bearer " + membership["agent_token"]}, context=context, status=401)
+            call(a.url, "/api/fleet/updates/rollouts", request, status=400)
+            call(a.url, "/api/fleet/commands", {"rig_ids": [identities[0]],
+                 "operation": {"action": "update_install", "expected_version": "99.0.0"}}, status=400)
+            assert not a.view()["rollouts"]
+            checks.append("Agent credentials, unapproved rigs and direct installer commands cannot create updates")
+
+            enabled = call(b.url, "/api/fleet/updates/enable", {})
+            assert enabled["enabled"] and not enabled["can_install"]
+            eventually(lambda: next((r for r in a.view()["rigs"] if r["rig_id"] == identities[1]
+                                    and r["snapshot"]["updates"]["enabled"]), None))
+            call(b.url, "/api/fleet/updates/disable", {})
+            assert not call(b.url, "/api/fleet/updates")["enabled"]
+            checks.append("Local opt-in reaches the shared snapshot but cannot authorize a portable fixture installation")
+
             target = identities[1]
             before = call(a.url, f"/api/fleet/rigs/{target}/config")
             revision = before["profiles"][0]["revision"]

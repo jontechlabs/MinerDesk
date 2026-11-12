@@ -8,6 +8,9 @@ if (-not $env:MD_SIGNING_PROBE_LOG) { throw 'This callback may only run inside t
 $file = (Resolve-Path -LiteralPath $Path).Path
 $extension = [IO.Path]::GetExtension($file)
 if ($extension -ieq '.dll') { Assert-MdUpstreamNsisPlugin -Path $file }
+elseif ($extension -ieq '.ps1') {
+    if ([IO.Path]::GetFileName($file) -notin @('maintenance.ps1', 'maintenance-common.ps1')) { throw "Unexpected script callback: $file" }
+}
 else {
     $metadata = [Diagnostics.FileVersionInfo]::GetVersionInfo($file)
     if ($metadata.ProductName -cne 'MinerDesk' -or $metadata.ProductVersion -cne $env:MD_SIGNING_VERSION) { throw "Unexpected callback product metadata: $file" }
