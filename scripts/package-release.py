@@ -44,6 +44,16 @@ LINUX_HELPERS = ['minerdesk-linux-helper', 'minerdesk-approved-helper', 'minerde
 WINDOWS_BINARIES = ['MinerDesk.exe', 'minerdesk-headless.exe', 'minerdesk-backend.exe', 'minerdesk-update-helper.exe']
 WINDOWS_SCRIPTS = ['maintenance.ps1', 'maintenance-common.ps1']
 
+def verify_deb_resources(deb, linux):
+    with tarfile.open(fileobj=io.BytesIO(subprocess.check_output(['dpkg-deb','--fsys-tarfile',str(deb)]))) as package:
+        for name in LINUX_HELPERS:
+            helpers = [entry for entry in package.getmembers() if entry.name.endswith('/resources/'+name)]
+            if len(helpers) != 1 or not helpers[0].isfile() or helpers[0].mode != 0o755 or helpers[0].uid != 0 or helpers[0].gid != 0 or package.extractfile(helpers[0]).read() != (linux / name).read_bytes():
+                raise RuntimeError('Debian elevation helper is missing, non-executable or differs from tested binary')
+        fixed = [entry for entry in package.getmembers() if entry.name.removeprefix('./') == 'usr/lib/minerdesk/minerdesk-update-helper']
+        if len(fixed) != 1 or not fixed[0].isfile() or fixed[0].mode != 0o755 or fixed[0].uid != 0 or fixed[0].gid != 0 or package.extractfile(fixed[0]).read() != (linux / 'minerdesk-update-helper').read_bytes():
+            raise RuntimeError('Debian fixed update worker is missing, unsafe or differs from tested binary')
+
 def verify_windows_resources(installer, windows):
     listing = subprocess.check_output(['7z', 'l', '-slt', str(installer)], text=True)
     paths = [line.removeprefix('Path = ').replace('\\', '/') for line in listing.splitlines() if line.startswith('Path = ')]
@@ -132,14 +142,7 @@ def main():
     dependencies = subprocess.check_output(['dpkg-deb','-f',str(linux / deb),'Depends'],text=True)
     if not any(name in dependencies for name in ['libayatana-appindicator3-1','libappindicator3-1']):
         raise RuntimeError('Debian package is missing the tray runtime dependency')
-    with tarfile.open(fileobj=io.BytesIO(subprocess.check_output(['dpkg-deb','--fsys-tarfile',str(linux / deb)]))) as package:
-        for name in LINUX_HELPERS:
-            helpers = [entry for entry in package.getmembers() if entry.name.endswith('/resources/'+name)]
-            if len(helpers) != 1 or not helpers[0].isfile() or helpers[0].mode != 0o755 or helpers[0].uid != 0 or helpers[0].gid != 0 or package.extractfile(helpers[0]).read() != (linux / name).read_bytes():
-                raise RuntimeError('Debian elevation helper is missing, non-executable or differs from tested binary')
-        fixed = [entry for entry in package.getmembers() if entry.name.removeprefix('./') == 'usr/lib/minerdesk/minerdesk-update-helper']
-        if len(fixed) != 1 or not fixed[0].isfile() or fixed[0].mode != 0o755 or fixed[0].uid != 0 or fixed[0].gid != 0 or package.extractfile(fixed[0]).read() != (linux / 'minerdesk-update-helper').read_bytes():
-            raise RuntimeError('Debian fixed update worker is missing, unsafe or differs from tested binary')
+    verify_deb_resources(linux / deb, linux)
     verify_windows_resources(windows / installer, windows)
     verify_appimage_resources(linux / appimage, linux)
     for directory, name in [(windows, installer), (windows, 'minerdesk-headless.exe'), (linux, appimage), (linux, deb)]:

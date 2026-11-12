@@ -115,6 +115,37 @@ jobs:
           path: publish/linux-x64/
           if-no-files-found: error
           retention-days: 14
+  artifact-integrity:
+    name: Verify embedded helpers in final release packages
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: sudo apt-get update && sudo apt-get install -y p7zip-full squashfs-tools
+      - name: Download this run's completed Windows and Linux artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name windows-x64 --name linux-x64 --dir publish/artifacts
+      - name: Verify final NSIS, Debian and AppImage helper bytes and permissions
+        run: |
+          python3 - <<'PY'
+          import importlib.util, json
+          from pathlib import Path
+          root = Path.cwd()
+          spec = importlib.util.spec_from_file_location('release', root / 'scripts/package-release.py')
+          release = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(release)
+          version = json.loads((root / 'package.json').read_text())['version']
+          windows = root / 'publish/artifacts/windows-x64'
+          linux = root / 'publish/artifacts/linux-x64'
+          release.verify_windows_resources(windows / f'MinerDesk_{version}_x64-setup.exe', windows)
+          release.verify_deb_resources(linux / f'MinerDesk_{version}_amd64.deb', linux)
+          release.verify_appimage_resources(linux / f'MinerDesk_{version}_amd64.AppImage', linux)
+          print('Verified embedded helper bytes and permissions in NSIS, Debian and finalized AppImage packages.')
+          PY
   update-signatures:
     name: Verify update signatures and tamper rejection
     runs-on: ubuntu-24.04

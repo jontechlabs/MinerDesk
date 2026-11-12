@@ -19,7 +19,7 @@ All paired Fleet instances are trusted controllers. Enabling this option permits
 
 The coordinator persists the plan and updates one rig at a time, with the coordinator itself last. Download and verification happen while mining continues. Only after the worker has independently verified and privately staged the package does the rig stop mining and exit for installation.
 
-An accepted command means the update request was queued. Fleet confirms installation only after receiving a fresh report of the expected or a newer version. The next rig waits for that confirmation. A failure stops the remaining rollout; **Cancel remaining** leaves an already committed installation to finish. After 45 minutes without version confirmation, the plan reports an uncertain failure rather than silently retrying an installer.
+An accepted command means the update request was queued. Fleet confirms installation only after the expected or a newer binary reconnects with a fresh report and the detached worker reports completion for the matching update job. The next rig waits for both confirmations. A failure stops the remaining rollout; **Cancel remaining** leaves an already committed installation to finish. After 45 minutes without confirmation, the plan reports an uncertain failure rather than silently retrying an installer.
 
 Keep the coordinator backend running until its own final update. A member UI can close or lose its connection without losing the coordinator's saved plan. Local mining schedules retain their normal policy after restart; a manually started session may need starting again.
 
@@ -44,6 +44,6 @@ Update requests freeze a stable version. Both the agent and detached worker veri
 
 À partir de **0.8.2**, Fleet permet de déployer les futures mises à jour signées depuis une instance associée. Il faut d'abord installer cette fonctionnalité sur chaque rig avec l'outil habituel, puis l'activer localement dans **Fleet → Connexion & flotte → Mises à jour distantes · cette machine**. Sous Debian/Lubuntu, validez une fois **Autoriser une fois sur Linux**. Aucun mot de passe administrateur n'est conservé.
 
-Depuis n'importe quel PC associé, vérifiez les mises à jour, sélectionnez les rigs puis confirmez la version et l'interruption du minage. Le déploiement avance rig par rig, coordinateur en dernier, et attend la reconnexion avec la version confirmée. Un échec arrête le restant. **Annuler le restant** ne force pas l'arrêt d'une installation déjà engagée.
+Depuis n'importe quel PC associé, vérifiez les mises à jour, sélectionnez les rigs puis confirmez la version et l'interruption du minage. Le déploiement avance rig par rig, coordinateur en dernier. Il attend un rapport récent du nouveau binaire avec la version attendue ou plus récente, ainsi que la confirmation de fin de l'assistant pour la même opération. Un échec arrête le restant. **Annuler le restant** ne force pas l'arrêt d'une installation déjà engagée.
 
 Le téléchargement et la vérification précèdent l'arrêt du minage. Les profils, horaires, moteurs téléchargés et associations Fleet sont conservés ; les horaires reprennent selon leurs règles habituelles. Une session manuelle peut nécessiter un redémarrage. L'option reste désactivable localement, et l'autorisation Linux est révocable séparément.
