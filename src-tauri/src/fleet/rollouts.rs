@@ -361,6 +361,58 @@ mod tests {
         manager.stop_runtime();
     }
     #[tokio::test]
+    async fn a_retry_cannot_hide_an_incomplete_install_behind_the_target_binary() {
+        let (_dir, manager, _core, peer) = setup().await;
+        for stage in ["failed", "cancelled", "restarting"] {
+            report(
+                &manager,
+                &peer,
+                TARGET,
+                json!({"id":uuid::Uuid::new_v4().to_string(),"expected_version":TARGET,"stage":stage,"error":null}),
+            );
+            assert!(manager.create_rollout(UpdateRolloutRequest {
+                rig_ids: vec![peer.clone()], expected_version: TARGET.into(),
+            }).await.is_err());
+        }
+        report(
+            &manager,
+            &peer,
+            TARGET,
+            json!({"id":uuid::Uuid::new_v4().to_string(),"expected_version":TARGET,"stage":"completed","error":"installer failed"}),
+        );
+        assert!(manager.create_rollout(UpdateRolloutRequest {
+            rig_ids: vec![peer.clone()], expected_version: TARGET.into(),
+        }).await.is_err());
+        assert!(manager.data().unwrap().hub.unwrap().commands.is_empty());
+        // A machine already on the target without any update job needs no
+        // installation and remains eligible for an already-up-to-date result.
+        report(&manager, &peer, TARGET, Value::Null);
+        let done = manager.create_rollout(UpdateRolloutRequest {
+            rig_ids: vec![peer], expected_version: TARGET.into(),
+        }).await.unwrap();
+        assert_eq!(done.state, "completed");
+        manager.stop_runtime();
+    }
+    #[tokio::test]
+    async fn queued_preflight_rejects_a_partially_installed_target_binary() {
+        let (_dir, manager, core, peer) = setup().await;
+        let rollout = manager.create_rollout(UpdateRolloutRequest {
+            rig_ids: vec![peer.clone()], expected_version: TARGET.into(),
+        }).await.unwrap();
+        report(
+            &manager,
+            &peer,
+            TARGET,
+            json!({"id":uuid::Uuid::new_v4().to_string(),"expected_version":TARGET,"stage":"failed","error":"installer failed after copying the binary"}),
+        );
+        manager.tick_rollouts().await.unwrap();
+        assert_eq!(plan(&manager, &rollout.id).view.state, "failed");
+        assert_eq!(plan(&manager, &rollout.id).view.rigs[0].state, "failed");
+        assert!(manager.data().unwrap().hub.unwrap().commands.is_empty());
+        assert_eq!(core.calls.load(Ordering::SeqCst), 0);
+        manager.stop_runtime();
+    }
+    #[tokio::test]
     async fn missing_confirmation_expires_without_starting_the_coordinator() {
         let (_dir, manager, core, peer) = setup().await;
         let rollout = manager
@@ -447,6 +499,11 @@ fn target_reached(rig: &RigView, version: &str) -> bool {
         .zip(stable(version).ok())
         .is_some_and(|(current, target)| current >= target)
 }
+fn completed_job(job: &Value, version: &str) -> bool {
+    job.get("expected_version").and_then(Value::as_str) == Some(version)
+        && job.get("stage").and_then(Value::as_str) == Some("completed")
+        && job.get("error").is_none_or(Value::is_null)
+}
 fn eligible(rig: &RigView, version: &str) -> Result<bool, String> {
     if !rig.online
         || rig.last_seen == 0
@@ -463,6 +520,12 @@ fn eligible(rig: &RigView, version: &str) -> Result<bool, String> {
         return Err("Upgrade this rig locally once to enable Fleet updates".into());
     }
     if target_reached(rig, version) {
+        if update.get("job").is_some_and(|job| {
+            job.get("expected_version").and_then(Value::as_str) == Some(version)
+                && !completed_job(job, version)
+        }) {
+            return Err("The target binary is present but its update did not complete; inspect the rig locally before retrying".into());
+        }
         return Ok(true);
     }
     if update.get("enabled").and_then(Value::as_bool) != Some(true)
@@ -690,9 +753,7 @@ impl FleetManager {
                 .and_then(Value::as_str);
             let reported_job = rig.and_then(|r| r.snapshot.pointer("/updates/job"));
             let completed = reported_job.is_some_and(|job| {
-                job.get("expected_version").and_then(Value::as_str)
-                    == Some(&plan.view.expected_version)
-                    && job.get("stage").and_then(Value::as_str) == Some("completed")
+                completed_job(job, &plan.view.expected_version)
                     && accepted_job
                         .is_none_or(|id| job.get("id").and_then(Value::as_str) == Some(id))
             });
