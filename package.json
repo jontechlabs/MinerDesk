@@ -1,7 +1,7 @@
 {
   "name": "minerdesk",
   "private": true,
-  "version": "0.7.39",
+  "version": "0.8.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,8 +16,9 @@
     "tauri:bundle:nsis": "tauri build --bundles nsis",
     "headless:build:debug": "node scripts/prepare-linux-helper.mjs && node scripts/prepare-windows-resources.mjs && cargo build --manifest-path src-tauri/Cargo.toml --bin minerdesk-headless --bin minerdesk-backend",
     "test:mining-controls": "node --test tests/miner-controls.test.cjs",
+    "test:fleet": "node --test tests/fleet-ui.test.cjs",
     "build:linux": "bash scripts/build-linux.sh",
-    "test": "npm run test:mining-controls && node --test tests/platform-config.test.cjs tests/dev-tip.test.cjs tests/windows-signing.test.cjs tests/app-updates.test.cjs tests/gpu-discovery.test.cjs tests/gpu-diagnostic.test.cjs tests/backend-panel.test.cjs tests/gpu-tuning.test.cjs tests/linux-elevation.test.cjs tests/miner-schedule-controls.test.cjs tests/app-startup.test.cjs"
+    "test": "npm run test:mining-controls && node --test tests/platform-config.test.cjs tests/dev-tip.test.cjs tests/windows-signing.test.cjs tests/app-updates.test.cjs tests/gpu-discovery.test.cjs tests/gpu-diagnostic.test.cjs tests/backend-panel.test.cjs tests/gpu-tuning.test.cjs tests/linux-elevation.test.cjs tests/miner-schedule-controls.test.cjs tests/app-startup.test.cjs tests/fleet-ui.test.cjs"
   },
   "dependencies": {
     "@tauri-apps/api": "~2.12.1",

@@ -82,6 +82,9 @@ def main():
     package_version = subprocess.check_output(['dpkg-deb','-f',str(linux / deb),'Version'],text=True).strip()
     if package_name != 'miner-desk' or package_version != version:
         raise RuntimeError('Debian package registration differs from the updater contract')
+    dependencies = subprocess.check_output(['dpkg-deb','-f',str(linux / deb),'Depends'],text=True)
+    if not any(name in dependencies for name in ['libayatana-appindicator3-1','libappindicator3-1']):
+        raise RuntimeError('Debian package is missing the tray runtime dependency')
     with tarfile.open(fileobj=io.BytesIO(subprocess.check_output(['dpkg-deb','--fsys-tarfile',str(linux / deb)]))) as package:
         for name in ['minerdesk-linux-helper','minerdesk-approved-helper']:
             helpers = [entry for entry in package.getmembers() if entry.name.endswith('/resources/'+name)]
@@ -91,13 +94,13 @@ def main():
         shutil.copyfile(directory / name, out / name)
     with zipfile.ZipFile(out / f'MinerDesk_{version}_windows-x64.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
         for name in records: archive.write(windows / name, name)
-        for name in ['LICENSE','SETUP-WINDOWS.md','SECURITY.md','docs/UPDATES.md','docs/QUANTUS.md','docs/PEAKMINER.md']: archive.write(ROOT / name, name)
+        for name in ['LICENSE','SETUP-WINDOWS.md','SECURITY.md','docs/FLEET.md','docs/UPDATES.md','docs/QUANTUS.md','docs/PEAKMINER.md']: archive.write(ROOT / name, name)
     with tarfile.open(out / f'MinerDesk_{version}_linux-x64.tar.gz', 'w:gz') as archive:
         for name in ['minerdesk','minerdesk-headless','minerdesk-linux-helper','minerdesk-approved-helper']:
             entry = archive.gettarinfo(str(linux / name), arcname=name)
             entry.mode = 0o755; entry.uid = entry.gid = 0; entry.uname = entry.gname = ''
             with (linux / name).open('rb') as file: archive.addfile(entry, file)
-        for name in ['LICENSE','BUILD-LINUX.md','SECURITY.md','docs/UPDATES.md','docs/QUANTUS.md','docs/LINUX-ELEVATION.md','docs/PEAKMINER.md']: archive.add(ROOT / name, arcname=name)
+        for name in ['LICENSE','BUILD-LINUX.md','SECURITY.md','docs/FLEET.md','docs/UPDATES.md','docs/QUANTUS.md','docs/LINUX-ELEVATION.md','docs/PEAKMINER.md']: archive.add(ROOT / name, arcname=name)
     subprocess.run(['git','archive','--format=zip','-o',str(out / f'MinerDesk_{version}_source.zip'),head],cwd=ROOT,check=True)
     pubkey = json.loads((ROOT / 'src-tauri/tauri.conf.json').read_text())['plugins']['updater']['pubkey']
     for name in [installer, appimage, deb]:

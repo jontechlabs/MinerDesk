@@ -6,9 +6,19 @@ MinerDesk is a local desktop/headless mining orchestrator maintained by [jontech
 
 Configuration and logs may store public wallet addresses, pool usernames, worker names, API tokens, executable paths, GPU settings, schedules, command lines and miner output on your machine. Treat pool credentials and LAN tokens as private. Never enter a seed phrase, private key or wallet recovery password: MinerDesk does not need them.
 
-If you enable browser/LAN access, the backend serves the interface and API to the clients you connect. The default local binding is recommended. Remote HTTP access is not encrypted by MinerDesk; use a trusted private network/VPN. See [the security model](../SECURITY.md).
+If you enable browser/LAN access, the backend serves the interface and API to the clients you connect. The default local binding is recommended. That HTTP interface is not encrypted by MinerDesk; use a trusted private network/VPN. Optional Fleet uses its separate HTTPS connection described below. See [the security model](../SECURITY.md).
 
 ## Network activity
+
+### Optional Fleet
+
+Fleet is off by default and uses a coordinator chosen by you, not a MinerDesk-hosted cloud service. Once associated, rigs send status, permitted profile settings, public payout identifiers, schedules and command results to that coordinator over HTTPS. All paired instances are trusted controllers and can view the group's operator configuration; the first version has no separate per-user roles. Periodic telemetry excludes wallet identifiers and private settings, but the separate operator configuration includes public receiving addresses so controllers can review edits. Logs returned for explicit requests are filtered and bounded; arbitrary third-party output cannot be guaranteed free of all identifying information.
+
+The coordinator and its network provider can observe normal connection information such as IP addresses and connection timing. Optional LAN discovery broadcasts a request and receives public coordinator names, addresses and certificate fingerprints; it does not broadcast pairing keys or credentials. Fleet does not require private wallet keys, seed phrases or root/administrator passwords. Pool passwords, executable paths, Advanced arguments and private root references are excluded from the operator configuration export.
+
+Fleet stores its TLS private material, membership credentials, last received rig/configuration snapshots and command history in `fleet-private/state.json` beside the local configuration. It is protected by local account permissions and must be backed up privately. Revocation removes coordinator access; copies previously received by other trusted controllers or included in private backups may remain. Leaving or disabling Fleet stops future participation but is not a promise to erase every earlier copy. See the [Fleet guide](FLEET.md) for local data and recovery boundaries.
+
+### Updates, engines and pools
 
 Starting with 0.7.24, automatic update checks contact GitHub's release API shortly after opening the desktop/web interface and every 6 hours while it remains open. You can turn these checks off or check manually in Settings. GitHub receives the IP address, request path and MinerDesk user agent; wallets, API tokens, profiles, logs and mining metrics are not sent. The backend caches checks for connected web clients. If you confirm an installation, the desktop also downloads release metadata and the signed package from GitHub's download hosts. The local check/snooze preferences are stored in this device's webview/browser storage. See [the update guide](UPDATES.md).
 

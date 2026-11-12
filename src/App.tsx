@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ApiTimeoutError, requestJson } from "./api";
 import AppUpdates from "./AppUpdates";
@@ -11,6 +11,7 @@ import type { AppUpdate } from "./updatePolicy";
 import { detectDevCoin } from "./devTip";
 import { selectableGpuDevices, gpuSelectorsUnverified } from "./gpuDiscovery";
 import LinuxElevationControl from "./LinuxElevationControl";
+import Fleet from "./Fleet";
 import { BulkStartError, runMiningCommand, type MiningAction } from "./minerCommands";
 import { dayNames, languageDirection, LANGUAGES, tr } from "./i18n";
 import type {
@@ -18,9 +19,9 @@ import type {
   LinuxAuthorizationStatus, MinerProfile, MinerStatus, PendingPowerAction, ScheduleWindow, SecurityStatus
 } from "./types";
 
-type Tab = "dashboard" | "miners" | "schedules" | "console" | "settings";
+type Tab = "dashboard" | "fleet" | "miners" | "schedules" | "console" | "settings";
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
-const DESKTOP_VERSION = "0.7.39";
+const DESKTOP_VERSION = "0.8.1";
 
 function resolveApiBase() {
   // Important: Tauri 2 uses an HTTP(S)-looking origin such as
@@ -104,6 +105,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [token, setToken] = useState(queryToken());
   const [health, setHealth] = useState<Health | null>(null);
+  const [localApiOnline, setLocalApiOnline] = useState(false);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [statuses, setStatuses] = useState<MinerStatus[]>([]);
   const [engines, setEngines] = useState<EngineSpec[]>([]);
@@ -146,6 +148,8 @@ export default function App() {
   const language = config?.ui?.language || localStorage.getItem("minerdesk.language") || "en";
   const t = (key: string) => tr(language, key);
   const days = dayNames(language);
+  const fleetRequest = useCallback(<T,>(path: string, options: RequestInit = {}, timeoutMs = 15000) =>
+    api<T>(path, options, token, timeoutMs), [token]);
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -186,7 +190,7 @@ export default function App() {
       localStorage.setItem("minerdesk.web.port", String(loaded.web?.desktop_api_port || 17888));
       if (loaded.web?.token && !localStorage.getItem("minerdesk.web.token")) localStorage.setItem("minerdesk.web.token", loaded.web.token);
       setBootSplashStatus("Loading miners and schedules…");
-      setHealth(h); setConfig(loaded); configRef.current = loaded; setEngines(e); setStatuses(s);
+      setHealth(h); setLocalApiOnline(true); setConfig(loaded); configRef.current = loaded; setEngines(e); setStatuses(s);
       if (!lastNativeUi.current) lastNativeUi.current = {
         startup: loaded.ui.start_with_windows ?? false, tray: loaded.ui.close_to_tray ?? false,
       };
@@ -338,7 +342,8 @@ export default function App() {
     const load = async () => {
       if (statusPollBusy.current || document.visibilityState !== "visible") return;
       statusPollBusy.current = true;
-      try { setStatuses(await api<MinerStatus[]>("/api/status", {}, token)); } catch { /* keep last known state */ }
+      try { setStatuses(await api<MinerStatus[]>("/api/status", {}, token)); setLocalApiOnline(true); }
+      catch { setLocalApiOnline(false); /* keep last known measurements, mark the connection offline */ }
       finally { statusPollBusy.current = false; }
     };
     void load();
@@ -649,16 +654,17 @@ export default function App() {
   }
   const powerSecondsLeft = pendingPower ? Math.max(0, pendingPower.deadline_unix - powerNow) : 0;
 
-  const title = tab === "dashboard" ? t("dashboardTitle") : tab === "miners" ? t("minersTitle") : tab === "schedules" ? t("schedulesTitle") : tab === "console" ? t("console") : t("settingsTitle");
+  const title = tab === "fleet" ? "MinerDesk Fleet" : tab === "dashboard" ? t("dashboardTitle") : tab === "miners" ? t("minersTitle") : tab === "schedules" ? t("schedulesTitle") : tab === "console" ? t("console") : t("settingsTitle");
+  const localBackendOnline = isTauri ? Boolean(backendStatus?.reachable) : localApiOnline;
 
-  return <div className="app-shell">
+  return <div className={tab==="fleet"?"app-shell fleet-shell":"app-shell"}>
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v0.7.39 · multi-miner</span></div></div>
-      <nav>{(["dashboard","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot"/>{t(x)}</button>)}</nav>
-      <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {t("activeMiners").toUpperCase()}</div><div className={`status-pill ${backendStatus?.reachable?"on":"off"}`}><span/>{backendStatus?.reachable?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
+      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v{DESKTOP_VERSION} · multi-miner</span></div></div>
+      <nav>{(["dashboard","fleet","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot"/>{x==="fleet"?"Fleet":t(x)}</button>)}</nav>
+      <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {tab==="fleet"?(language==="fr"?"MINEURS LOCAUX":"LOCAL MINERS"):t("activeMiners").toUpperCase()}</div><div className={`status-pill ${localBackendOnline?"on":"off"}`}><span/>{localBackendOnline?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>
     <main className={tab==="console"?"console-main":""}>
-      <header className="topbar"><div><h1>{title}</h1><p>{statusText}{dirty?` · ${t("unsaved")}`:""}</p></div><div className="top-actions">{dirty&&<button className="btn primary" onClick={()=>saveConfig()} disabled={busy}>{t("save")}</button>}<button className="btn ghost" onClick={()=>allAction("start-all")} title={t("startAllScheduleHelp")} disabled={busy||!health}>{t("startAll")}</button><button className="btn danger" onClick={()=>allAction("stop-all")} disabled={busy||!health}>{t("stopAll")}</button></div></header>
+      <header className="topbar"><div><h1>{title}</h1><p>{tab==="fleet"?(language==="fr"?"Vos machines, un seul espace de pilotage.":"Your rigs, one place to manage them."):statusText}{dirty?` · ${t("unsaved")}`:""}</p></div>{tab!=="fleet"&&<div className="top-actions">{dirty&&<button className="btn primary" onClick={()=>saveConfig()} disabled={busy}>{t("save")}</button>}<button className="btn ghost" onClick={()=>allAction("start-all")} title={t("startAllScheduleHelp")} disabled={busy||!health}>{t("startAll")}</button><button className="btn danger" onClick={()=>allAction("stop-all")} disabled={busy||!health}>{t("stopAll")}</button></div>}</header>
       <AppUpdates desktop={isTauri} language={language} settings={tab === "settings"} dirty={dirty} busy={busy || backendBusy || Boolean(pendingPower)} onInstalling={setAppUpdating} checkWeb={(force) => api<AppUpdate>(`/api/updates?force=${force}`, {}, token, 25000)}/>
 
       {commandProgress && <div className="command-progress" role="status">{commandProgress}</div>}
@@ -668,6 +674,8 @@ export default function App() {
       </div>}
 
       {isTauri && backendStatus && <BackendPanel status={backendStatus} busy={backendBusy} language={language} onAction={command => void runBackendAction(command)} onRefresh={() => void refreshBackendStatus(true)}/> }
+
+      {tab==="fleet"&&<Fleet language={language} request={fleetRequest}/>}
 
       {tab==="dashboard"&&<section className="page">
         <div className="metric-grid"><Metric title={t("activeMiners")} value={`${summary.running} / ${filtered.length}`} accent/><Metric title={t("totalPower")} value={`${summary.power.toFixed(0)} W`}/><Metric title={t("maxTemp")} value={summary.temp?`${summary.temp.toFixed(0)} °C`:"—"}/><Metric title={t("sharesAR")} value={`${summary.accepted} / ${summary.rejected}`}/></div>

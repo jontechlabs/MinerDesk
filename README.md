@@ -3,6 +3,7 @@
   <h1>MinerDesk</h1>
   <p><strong>Your miners. Your schedule. One dashboard.</strong></p>
   <p>A desktop and headless control center for configuring, launching and monitoring multiple mining engines.</p>
+  <p><strong>MinerDesk 0.8.1: Fleet is now in the stable release — manage your Windows and Linux rigs from any paired instance.</strong></p>
   <p>
     <a href="https://github.com/jontechlabs/MinerDesk/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/jontechlabs/MinerDesk?color=44d7b6"></a>
     <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-44d7b6"></a>
@@ -24,6 +25,7 @@ Keep your pool settings, GPU choices and schedules in one place instead of maint
 | Keep an eye on a machine | Inspect hashrate, power, temperature, shares, uptime and logs from the desktop or a trusted browser connection. |
 | Use different GPU settings per profile | Select devices and translate supported core/memory clocks, signed offsets, power and fan settings to each engine's command line. |
 | Take manual control | Stop a scheduled session without it immediately restarting; explicitly Start to resume. |
+| Manage several Windows and Linux rigs | Pair them with one Fleet coordinator, inspect their latest status and send explicit commands from any paired instance. |
 
 **MinerDesk is an orchestrator, not a mining engine, wallet or profitability service.** Mining is performed by separately downloaded third-party programs. Results depend on your hardware, driver, engine, pool and settings. No earnings or efficiency gains are promised.
 
@@ -33,15 +35,15 @@ Open [the latest release](https://github.com/jontechlabs/MinerDesk/releases/late
 
 | Platform | Asset | Use |
 | --- | --- | --- |
-| Windows 10/11 x64 | `MinerDesk_0.7.39_x64-setup.exe` | Recommended desktop installation, including both backends. |
-| Windows x64 | `MinerDesk_0.7.39_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
-| Debian-compatible Linux x64 | `MinerDesk_0.7.39_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.7.39_amd64.deb`. |
-| Linux x64 | `MinerDesk_0.7.39_amd64.AppImage` | Application image; make executable before launching. |
-| Linux x64 | `MinerDesk_0.7.39_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
+| Windows 10/11 x64 | `MinerDesk_0.8.1_x64-setup.exe` | Recommended desktop installation, including both backends. |
+| Windows x64 | `MinerDesk_0.8.1_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
+| Debian-compatible Linux x64 | `MinerDesk_0.8.1_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.8.1_amd64.deb`. |
+| Linux x64 | `MinerDesk_0.8.1_amd64.AppImage` | Application image; make executable before launching. |
+| Linux x64 | `MinerDesk_0.8.1_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
 
 Verify downloads against `SHA256SUMS.txt` in the release. Windows builds remain **unsigned with Authenticode**. Starting with 0.7.24, installer/AppImage/Debian updates have separate cryptographic signatures verified by the app. Linux compatibility and exact validation are recorded in the release notes. macOS and ARM packages are not provided.
 
-[Code signing policy](docs/CODE-SIGNING.md): a separate Windows signing workflow is prepared, pending provider acceptance and configuration. Current 0.7.39 downloads remain unsigned. See the [privacy policy](docs/PRIVACY.md) for local data and network activity.
+[Code signing policy](docs/CODE-SIGNING.md): a separate Windows signing workflow is prepared, pending provider acceptance and configuration. Check the release's signing status; update signatures are separate from Windows Authenticode. See the [privacy policy](docs/PRIVACY.md) for local data and network activity.
 
 GPU detection in 0.7.25 preserves SRBMiner’s global IDs across AMD/OpenCL and NVIDIA/CUDA devices. Refresh after hardware changes and select by name/PCI address; system fallback indices are informational. [GPU selection guide](docs/GPU-SELECTION.md).
 
@@ -56,11 +58,28 @@ GPU detection in 0.7.25 preserves SRBMiner’s global IDs across AMD/OpenCL and 
 
 The optional developer tip is **0% by default**, visible and selectable per profile. It can be disabled at any time. Third-party mining engines may have their own fees and licenses.
 
+## Fleet: one group, several rigs
+
+Fleet is **off by default**. Enable it only on machines you want to associate. Any paired instance can display the group's rigs, send Start/Stop/Restart/Resume or explicit Force commands, review public profile settings and save permitted profile or schedule edits. Each rig keeps its engines, hardware settings and operating-system permissions locally.
+
+1. **Create one coordinator.** Open **Fleet**, choose a name and review the suggested LAN HTTPS address, normally `https://YOUR-LAN-IP:17889`. Bind to the intended network interface and keep that address stable.
+2. **Create an invitation.** On the coordinator, generate a temporary, single-use invitation. Transfer its address and complete key privately to the next rig's owner.
+3. **Join the group.** On each other Windows/Linux instance, enter that address and key. **Find coordinators** can supply a LAN address hint; association still requires the trusted invitation. Generate a new invitation for every rig.
+
+The separate Fleet listener uses **HTTPS on TCP 17889** by default; optional LAN discovery uses **UDP 17990**. Agents connect outward to the coordinator. Across networks, use a trusted VPN or deliberately configure a reachable HTTPS address, router port forwarding and firewall rules for the coordinator. MinerDesk does not create UPnP/router mappings automatically. The existing plain HTTP API on 17888 must remain on a trusted LAN/VPN.
+
+**Every paired instance is a trusted controller of the group.** This first release does not provide separate viewer/operator/admin roles. Public payout addresses and permitted profile settings are visible to those controllers. Wallet private keys and administrator passwords are never needed or transferred; root command enrollment remains local to the Linux rig.
+
+If the coordinator or network is unavailable, rigs keep mining and following their local schedules while their backend remains running. Stale telemetry is timestamped, commands expire, and conflicting configuration revisions require a refresh. With Fleet enabled, Windows window-close detaches the interface while its backend continues; Linux window-close hides the application in its tray. **Quit** is the explicit stop/exit action. Fleet does not automatically install an operating-system boot service or keep a rig running through logout/shutdown.
+
+See the [Fleet guide, English and French](docs/FLEET.md) for pairing, allowed edits, filtered logs, local root approvals, backup and recovery limits.
+
 ## Features
 
 **Quantus (QTC):** use an SRBMiner-Multi, [OneZeroMiner](docs/ONEZEROMINER.md) or [PeakMiner](docs/PEAKMINER.md) profile and, from 0.7.23, optional developer support with worker preservation. See the [Quantus setup guide](docs/QUANTUS.md) and [English video tutorial](https://www.youtube.com/watch?v=cCzC8PqDtEI).
 
 - **Multiple profiles:** independent pools, wallets, workers, GPUs, tuning, API ports and advanced arguments.
+- **Optional Fleet:** one coordinator, outbound TLS agents, command receipts and one dashboard for paired Windows/Linux rigs. [Fleet guide](docs/FLEET.md).
 - **Updates on your terms:** checks every 6 hours, an install confirmation, verified downloads and GitHub links for installations that need manual updates. [Update guide](docs/UPDATES.md).
 - **Live overview:** active profiles, parsed hashrate, power, temperature, shares and uptime, with engine/state filters.
 - **A console per profile:** stdout/stderr, generated command lines and persistent command errors.
@@ -119,7 +138,7 @@ Built with **Tauri 2 · React 18 · TypeScript · Vite · Rust · Tokio · Axum*
 
 The Windows scheduled task **MinerDesk Privileged Backend** starts the backend with `--desktop-owned`. Restart policy is three attempts at one-minute intervals. Managed mining trees are created suspended, assigned to Windows Job Objects with kill-on-close, then resumed. Heartbeat loss is checked against the desktop PID before treating the desktop as dead.
 
-A real desktop exit stops its backend and miners. Hiding to the tray does not exit. An independently started CLI is not owned by the desktop. Linux uses the desktop-hosted backend or the standalone CLI, without Windows elevation tasks or Job Objects.
+An explicit desktop Quit stops its backend and miners. Hiding to the tray does not exit. With Fleet enabled, closing the Windows window detaches it from its autonomous backend, and closing the Linux window hides the still-running app. An independently started CLI is not owned by the desktop. Linux uses the desktop-hosted backend or the standalone CLI, without Windows elevation tasks or Job Objects. Fleet does not add an automatic boot service.
 
 ## Web and headless mode
 
@@ -175,6 +194,7 @@ Platform-specific Tauri configs keep NSIS, installer hooks and `.exe` resources 
 | Configuration | `%APPDATA%\MinerDesk\config.json` | `~/.config/MinerDesk/config.json` |
 | Scheduler holds | `scheduler-manual-stops.json` beside config | Same |
 | Backend log | `backend.log` beside config | Same |
+| Private Fleet identity and credentials | `fleet-private/state.json` beside config | Same; keep the directory private |
 | Downloaded engines | `C:\ProgramData\MinerDesk\miners\` | `~/.local/share/MinerDesk/miners/` |
 | Installer logs | `C:\ProgramData\MinerDesk\logs\` | Not applicable |
 
@@ -191,6 +211,8 @@ Linux locations follow `dirs-next` and your environment. Upgrades preserve confi
 | Installer fails | Read `setup-maintenance.log`; do not use an older installer as a substitute for a failed build. |
 | GPU tuning has no effect | Confirm the engine supports that flag, selected device IDs, driver permissions and saved values. |
 | No LAN connection | Check bind mode, token, port and Private-network firewall settings. |
+| Fleet rig appears offline | Read its last-seen time; check its backend and HTTPS route to the coordinator. Offline telemetry does not prove mining stopped. |
+| No coordinator found | Discovery is a LAN hint only; enter the coordinator's reachable HTTPS address and a fresh invitation manually. |
 | Antivirus flags a mining engine | Verify its upstream origin. Miner/PUA detection is common; an exclusion is not proof a binary is safe. |
 
 Defender integration is optional and scoped to the managed-miner directory. Administrative policy or Tamper Protection can reject changes; errors are surfaced. MinerDesk never needs wallet secrets.
