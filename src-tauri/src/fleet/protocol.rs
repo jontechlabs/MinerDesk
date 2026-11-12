@@ -136,6 +136,8 @@ fn default_listen() -> String {
 pub struct JoinRequest {
     pub address: String,
     pub key: String,
+    // Older clients may still supply a label; new clients use the machine name.
+    #[serde(default)]
     pub name: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]

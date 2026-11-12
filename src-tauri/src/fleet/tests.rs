@@ -48,6 +48,38 @@ fn operation_request(rig: String) -> CommandRequest {
 }
 
 #[tokio::test]
+async fn join_with_only_address_and_key_uses_the_machine_name() {
+    let hub_dir = tempfile::tempdir().unwrap();
+    let rig_dir = tempfile::tempdir().unwrap();
+    let hub = manager(&hub_dir, Arc::new(FixtureCore::default()));
+    let rig = manager(&rig_dir, Arc::new(FixtureCore::default()));
+    coordinator(&hub).await;
+    let invitation = hub
+        .invite(InviteRequest {
+            expires_in_seconds: 300,
+        })
+        .await
+        .unwrap();
+    let request: JoinRequest = serde_json::from_value(json!({
+        "address": invitation.address,
+        "key": invitation.key,
+    }))
+    .unwrap();
+    assert!(request.name.is_empty());
+    rig.join(request).await.unwrap();
+    let setup = rig.local_status();
+    assert_eq!(setup.name, local_name());
+    assert_eq!(
+        hub.data().unwrap().hub.unwrap().rigs[&setup.rig_id].name,
+        setup.name
+    );
+    let reopened = manager(&rig_dir, Arc::new(FixtureCore::default()));
+    assert_eq!(reopened.local_status().name, setup.name);
+    rig.leave().await.unwrap();
+    hub.disable().await.unwrap();
+}
+
+#[tokio::test]
 async fn two_instances_pair_over_verified_tls_and_command_receipts_survive_retry() {
     let hub_dir = tempfile::tempdir().unwrap();
     let rig_dir = tempfile::tempdir().unwrap();
@@ -68,6 +100,7 @@ async fn two_instances_pair_over_verified_tls_and_command_receipts_survive_retry
     })
     .await
     .unwrap();
+    assert_eq!(rig.local_status().name, "Fixture rig");
     let rig_id = rig.local_status().rig_id;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {

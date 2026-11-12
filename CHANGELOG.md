@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.1
+
+- Promote Fleet to the stable release channel with verified update assets for installed Windows, Debian and writable AppImage copies.
+- Simplify Join Fleet to the coordinator URL and invitation key; derive the rig label from the local machine while preserving existing identities and legacy clients.
+- Show the opened rig's dashboard metrics alongside its miners: hashrate, engine-reported power, temperature, fan, accepted/rejected shares and uptime. Keep the opened view synchronized with incoming rig snapshots.
+- Preserve unavailable/stale readings distinctly from zero and maintain compatibility with existing paired 0.8.0 rigs.
+- Include the Fleet guide in both portable archives and verify the Debian tray runtime dependency during release packaging.
+
 ## 0.8.0
 
 - Add opt-in MinerDesk Fleet: one coordinator and outbound HTTPS agents for Windows/Linux rigs, with a shared dashboard accessible from any paired instance. Fleet is off by default.
@@ -9,7 +17,7 @@
 - Allow revision-checked edits to stopped profiles and local-time schedule windows. Preserve executable paths, engine selection, Advanced arguments, pool passwords, local power controls, web settings and root grants. Keep root enrollment local and remote launches noninteractive.
 - Keep public payout identifiers in the trusted controller configuration view, omit sensitive fields from periodic telemetry, and filter command/credential/path-bearing logs. All paired instances are trusted controllers; this version has no granular per-user roles.
 - With Fleet enabled, Windows window-close detaches the desktop while its backend continues; Linux window-close hides the application with tray access. Explicit Quit still stops the desktop-owned backend and its miners. No automatic operating-system boot service is installed.
-- Document HTTPS/VPN reachability, private backup/recovery and first-version limits. Initial local checks passed 116 Rust tests on Linux and 9 UI tests; final package and Windows CI validation must precede release publication. No live GPU benchmark is claimed.
+- Document HTTPS/VPN reachability, private backup/recovery and first-version limits. The preview passed 127 Rust library tests on Linux, 97 Node tests (including 17 Fleet UI cases), native Windows/Linux CI and 12 scenarios between three isolated backends. No live GPU benchmark is claimed.
 
 ## 0.7.39
 

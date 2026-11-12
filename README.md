@@ -3,7 +3,7 @@
   <h1>MinerDesk</h1>
   <p><strong>Your miners. Your schedule. One dashboard.</strong></p>
   <p>A desktop and headless control center for configuring, launching and monitoring multiple mining engines.</p>
-  <p><strong>New in 0.8.0: MinerDesk Fleet — manage your Windows and Linux rigs from any paired instance.</strong></p>
+  <p><strong>MinerDesk 0.8.1: Fleet is now in the stable release — manage your Windows and Linux rigs from any paired instance.</strong></p>
   <p>
     <a href="https://github.com/jontechlabs/MinerDesk/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/jontechlabs/MinerDesk?color=44d7b6"></a>
     <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-44d7b6"></a>
@@ -35,11 +35,11 @@ Open [the latest release](https://github.com/jontechlabs/MinerDesk/releases/late
 
 | Platform | Asset | Use |
 | --- | --- | --- |
-| Windows 10/11 x64 | `MinerDesk_0.8.0_x64-setup.exe` | Recommended desktop installation, including both backends. |
-| Windows x64 | `MinerDesk_0.8.0_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
-| Debian-compatible Linux x64 | `MinerDesk_0.8.0_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.8.0_amd64.deb`. |
-| Linux x64 | `MinerDesk_0.8.0_amd64.AppImage` | Application image; make executable before launching. |
-| Linux x64 | `MinerDesk_0.8.0_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
+| Windows 10/11 x64 | `MinerDesk_0.8.1_x64-setup.exe` | Recommended desktop installation, including both backends. |
+| Windows x64 | `MinerDesk_0.8.1_windows-x64.zip` | The desktop, windowless backend and standalone CLI together. The installer is preferable for privileged-backend setup. |
+| Debian-compatible Linux x64 | `MinerDesk_0.8.1_amd64.deb` | Desktop and CLI package; install with `sudo apt install ./MinerDesk_0.8.1_amd64.deb`. |
+| Linux x64 | `MinerDesk_0.8.1_amd64.AppImage` | Application image; make executable before launching. |
+| Linux x64 | `MinerDesk_0.8.1_linux-x64.tar.gz` | Desktop and standalone headless executables; system libraries are still required. |
 
 Verify downloads against `SHA256SUMS.txt` in the release. Windows builds remain **unsigned with Authenticode**. Starting with 0.7.24, installer/AppImage/Debian updates have separate cryptographic signatures verified by the app. Linux compatibility and exact validation are recorded in the release notes. macOS and ARM packages are not provided.
 

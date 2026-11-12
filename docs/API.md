@@ -40,6 +40,8 @@ The [Fleet guide](FLEET.md) describes pairing and trust. These routes belong to 
 
 `src-tauri/src/fleet/protocol.rs` defines the versioned command contract. Profile edits carry a profile revision; schedule edits carry a configuration revision. Paths, arbitrary arguments, passwords, system security and root enrollment are outside the Fleet command allowlist. The separate HTTPS machine protocol (normally 17889) authenticates agent and controller credentials separately, rejects browser-origin traffic and never forwards requests to the localhost API. Do not expose plain HTTP port 17888 to the public Internet.
 
+`POST /api/fleet/join` accepts `{"address":"https://coordinator:17889","key":"INVITATION"}`. From 0.8.1, an omitted or blank `name` uses the local computer name; an explicit legacy name remains supported. Runtime telemetry uses the same metrics as `/api/status`; `dev_tip_active` is optional for older peers and defaults to false.
+
 The headless CLI supports `--config /absolute/path/to/instance/config.json` for an explicit configuration. Give independent instances separate configuration directories; Fleet identities and scheduler state are stored beside that file.
 
 ## Existing local controls

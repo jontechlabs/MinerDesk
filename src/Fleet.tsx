@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ScheduleWindow } from "./types";
-import { decodeFleetLogs, decodeFleetView, fleetEditablePatch, fleetHashrate, fleetPreflight, fleetRigFresh, fleetSummary } from "./fleetTypes";
+import { decodeFleetLogs, decodeFleetView, fleetEditablePatch, fleetHashrate, fleetPreflight, fleetRigFresh, fleetSummary, fleetUptime } from "./fleetTypes";
 import type {
   FleetAction, FleetConfig, FleetDiscovery, FleetInvitation, FleetLogs, FleetMiner,
   FleetOperation, FleetProfile, FleetProfilePatch, FleetReceipt, FleetRequest, FleetRig, FleetView,
@@ -115,8 +115,8 @@ export default function Fleet({ language, request, localName }: FleetProps) {
   const [layout, setLayout] = useState<"cards" | "table">("cards"), [query, setQuery] = useState(""), [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<string[]>([]), [detailId, setDetailId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<"profiles" | "gpu" | "schedules" | "logs">("profiles");
-  const [hubName, setHubName] = useState(""), [hubAddress, setHubAddress] = useState("");
-  const [joinName, setJoinName] = useState(localName || ""), [joinAddress, setJoinAddress] = useState(""), [joinKey, setJoinKey] = useState("");
+  const [hubName, setHubName] = useState(localName || ""), [hubAddress, setHubAddress] = useState("");
+  const [joinAddress, setJoinAddress] = useState(""), [joinKey, setJoinKey] = useState("");
   const [showSetup, setShowSetup] = useState(false), [invitation, setInvitation] = useState<FleetInvitation | null>(null);
   const [discovered, setDiscovered] = useState<FleetDiscovery[] | null>(null);
   const [review, setReview] = useState<Review | null>(null), [results, setResults] = useState<OperationResult[]>([]);
@@ -143,7 +143,7 @@ export default function Fleet({ language, request, localName }: FleetProps) {
     return () => { alive.current = false; controller.abort(); clearTimeout(timer); };
   }, [refresh]);
   useEffect(() => {
-    if (view?.setup.name) { setHubName(old => old || view.setup.name); setJoinName(old => old || view.setup.name); }
+    if (view?.setup.name) setHubName(old => old || view.setup.name);
   }, [view?.setup.name]);
   useEffect(() => { if (view?.setup.suggested_url) setHubAddress(old => old || view.setup.suggested_url!); }, [view?.setup.suggested_url]);
   useEffect(() => {
@@ -155,6 +155,7 @@ export default function Fleet({ language, request, localName }: FleetProps) {
   }, [view?.commands, logReceipt]);
   const rigs = view?.rigs || [];
   const detail = rigs.find(r => r.rig_id === detailId) || null;
+  const detailSummary = detail ? fleetSummary([detail]) : null;
   const activeLogReceipt = view?.commands.find(c => c.id === logReceipt);
   const summary = useMemo(() => fleetSummary(rigs), [rigs, refreshedAt]);
   const shown = rigs.filter(r => `${r.name} ${r.snapshot?.os || ""} ${r.snapshot?.status.map(m => `${m.name} ${m.engine} ${m.algorithm}`).join(" ") || ""}`.toLowerCase().includes(query.toLowerCase()))
@@ -227,11 +228,11 @@ export default function Fleet({ language, request, localName }: FleetProps) {
         <button className="fleet-btn fleet-primary" disabled={!localSetup || busy || !hubName.trim() || !hubAddress.startsWith("https://")}>{t("Créer la flotte", "Create fleet")}</button>
       </form></section>}
     {view.setup.mode === "standalone" && <section className="fleet-setup-panel"><h2>{t("Rejoindre une flotte", "Join a fleet")}</h2><p>{t("Générez une clé sur le coordinateur et transférez-la par un canal de confiance. Aucun mot de passe administrateur n’est demandé ici.", "Generate a key on the coordinator and transfer it through a trusted channel. No administrator password is requested here.")}</p>
-      <form onSubmit={e => { e.preventDefault(); void mutate<FleetView>("/api/fleet/join", json({ address: joinAddress.trim(), key: joinKey.trim(), name: joinName.trim() }), result => { setJoinKey(""); setView(decodeFleetView(result)); setShowSetup(false); }); }}>
-        <label className="fleet-field">{t("Nom de cette machine", "This machine's name")}<input value={joinName} onChange={e => setJoinName(e.target.value)} required maxLength={80} disabled={!localSetup || busy}/></label>
+      <form onSubmit={e => { e.preventDefault(); void mutate<FleetView>("/api/fleet/join", json({ address: joinAddress.trim(), key: joinKey.trim() }), result => { setJoinKey(""); setView(decodeFleetView(result)); setShowSetup(false); }); }}>
         <label className="fleet-field">{t("Adresse HTTPS du coordinateur", "Coordinator HTTPS address")}<input type="url" value={joinAddress} onChange={e => setJoinAddress(e.target.value)} placeholder="https://192.168.1.10:17889" pattern="https://.*" required disabled={!localSetup || busy}/></label>
         <label className="fleet-field">{t("Clé d’association", "Pairing key")}<input type="password" autoComplete="off" value={joinKey} onChange={e => setJoinKey(e.target.value)} required disabled={!localSetup || busy}/></label>
-        <button className="fleet-btn fleet-primary" disabled={!localSetup || busy || !joinKey.trim() || !joinName.trim() || !joinAddress.startsWith("https://")}>{t("Rejoindre", "Join")}</button>
+        <small>{t("Le nom de cette machine est détecté automatiquement.", "This machine's name is detected automatically.")}</small>
+        <button className="fleet-btn fleet-primary" disabled={!localSetup || busy || !joinKey.trim() || !joinAddress.startsWith("https://")}>{t("Rejoindre", "Join")}</button>
       </form></section>}
     <section className="fleet-setup-panel"><h2>{t("Découverte locale", "LAN discovery")}</h2><p>{t("La recherche n’est lancée qu’à votre demande. Les annonces sont des indications non vérifiées : contrôlez l’adresse et l’empreinte lors de l’association.", "Scanning runs only when requested. Announcements are unverified hints: check the address and fingerprint when pairing.")}</p>
       <button type="button" className="fleet-btn" disabled={busy || !localSetup} onClick={() => void mutate<FleetDiscovery[]>("/api/fleet/discover", json({}), setDiscovered)}>{t("Chercher sur le LAN", "Scan LAN")}</button>
@@ -279,7 +280,39 @@ export default function Fleet({ language, request, localName }: FleetProps) {
       <div className="fleet-detail-body" id="fleet-detail-panel" role="tabpanel" aria-labelledby={`fleet-tab-${detailTab}`}>
         {detailTab === "logs" && activeLogReceipt && ["failed", "expired"].includes(activeLogReceipt.state) && <div className="fleet-callout error" role="alert">{receiptLabel(activeLogReceipt,t)} · {activeLogReceipt.error || t("Le journal n’a pas pu être reçu.", "The log could not be retrieved.")}</div>}
         {!fresh(detail) && <div className="fleet-callout warning">{unavailableReason(detail,t)}</div>}
-        {detailTab === "profiles" && <><div className="fleet-callout">{t("Démarrer et Redémarrer respectent le planning. Forcer crée une dérogation explicite pour cette session. Les autorisations root se valident sur le rig.", "Start and Restart respect schedules. Force explicitly overrides them for this session. Root approvals are granted on the rig.")}</div><div className="fleet-profile-list">{detail.snapshot?.status.map(miner => <div key={miner.id} className="fleet-profile"><div className="fleet-profile-info"><h3>{miner.name}</h3><small>{miner.engine} · {miner.algorithm} · {fresh(detail) ? mode(miner, t) : t("Dernier état reçu", "Last reported state")}</small><small>{authText(miner.root_authorization, t)}</small>{miner.last_error && <div className="fleet-profile-error">{miner.last_error}</div>}</div><div className="fleet-actions">{profileActions(detail, miner)}<button type="button" className="fleet-btn fleet-small" disabled={busy || !canControl || !fresh(detail) || miner.running || !detail.config?.profiles.some(p => p.id === miner.id)} onClick={() => { const before = detail.config!.profiles.find(p => p.id === miner.id)!; setEditor({ rig: detail, config: detail.config!, before, draft: { ...before } }); }}>{t("Modifier", "Edit")}</button></div></div>) || <p>{t("Aucun état de profil reçu.", "No profile status received.")}</p>}</div><small>{t("Arrêtez un profil avant d’en modifier les paramètres d’exécution.", "Stop a profile before editing its execution settings.")}</small></>}
+        {detailTab === "profiles" && <>
+          <div className="fleet-kpis fleet-detail-kpis" aria-label={t("Résumé du rig", "Rig summary")}>
+            <div className="fleet-kpi"><div className="fleet-kpi-label">{t("Mineurs actifs", "Active miners")}</div><div className="fleet-kpi-value">{fresh(detail) ? detailSummary!.activeMiners : "—"}<span> / {detail.snapshot?.status.length ?? "—"}</span></div></div>
+            <div className="fleet-kpi"><div className="fleet-kpi-label">{t("Puissance GPU totale", "Total GPU power")}</div><div className="fleet-kpi-value">{detailSummary!.power === null ? "—" : `${detailSummary!.power.toFixed(0)} W`}</div></div>
+            <div className="fleet-kpi"><div className="fleet-kpi-label">{t("Température max.", "Max temperature")}</div><div className="fleet-kpi-value">{detailSummary!.temperature === null ? "—" : `${detailSummary!.temperature.toFixed(0)} °C`}</div></div>
+            <div className="fleet-kpi"><div className="fleet-kpi-label">{t("Shares A/R", "Shares A/R")}</div><div className="fleet-kpi-value">{detailSummary!.accepted === null ? "—" : `${detailSummary!.accepted} / ${detailSummary!.rejected}`}</div></div>
+          </div>
+          <div className="fleet-section-head"><h3>{t("Tableau de bord des mineurs", "Miner dashboard")}</h3><small>{t("Actualisation automatique toutes les 5 s · derniers états reçus", "Refreshes automatically every 5s · latest agent snapshots")}</small></div>
+          {detail.snapshot?.status.length ? <div className="fleet-table-wrap fleet-miner-table-wrap" role="region" aria-label={t("Mesures et commandes des mineurs", "Miner readings and controls")} tabIndex={0}><table className="fleet-table fleet-miner-table" aria-label={t("Tableau de bord des mineurs", "Miner dashboard")}>
+            <thead><tr><th>{t("Profil", "Profile")}</th><th>{t("Moteur", "Engine")}</th><th>{t("Algo / GPU", "Algo / GPU")}</th><th>{t("État", "State")}</th><th>{t("Débit", "Hashrate")}</th><th>W</th><th>°C</th><th>{t("Ventilateur %", "Fan %")}</th><th>A/R</th><th>{t("Durée", "Uptime")}</th><th>{t("Actions", "Actions")}</th></tr></thead>
+            <tbody>{detail.snapshot.status.map(miner => {
+              const current = fresh(detail), profile = detail.config?.profiles.find(p => p.id === miner.id);
+              return <tr key={miner.id}>
+                <td><strong>{miner.name}</strong>{profile?.pool && <small>{profile.pool}</small>}{miner.last_error && <small className="fleet-profile-error">{miner.last_error}</small>}</td>
+                <td>{miner.engine}</td><td>{miner.algorithm || "—"}<small>GPU {miner.gpu_ids || t("Tous", "All")}</small></td>
+                <td><Badge kind={current && miner.running ? "good" : current ? "" : "warning"}>{current ? !miner.enabled && !miner.running ? t("Désactivé", "Disabled") : mode(miner, t) : t("Dernier état reçu", "Last reported state")}</Badge>
+                  {current && miner.running && !miner.enabled && <small>{t("Profil désactivé", "Profile disabled")}</small>}
+                  {current && miner.has_schedule && <small>{miner.scheduler_paused ? t("Planning en pause", "Schedule paused") : miner.scheduled_now ? t("Dans le créneau planifié", "Within schedule") : t("Hors créneau planifié", "Outside schedule")}</small>}
+                  {current && miner.dev_tip_active && <small className="fleet-dev-tip">♥ {t("Soutien développeur actif", "Developer tip active")}</small>}
+                  <small>{authText(miner.root_authorization, t)}</small></td>
+                <td>{current ? fleetHashrate(miner.metrics.hashrate_hps) : "—"}</td>
+                <td>{current && miner.metrics.power_w !== null ? miner.metrics.power_w.toFixed(0) : "—"}</td>
+                <td>{current && miner.metrics.temperature_c !== null ? miner.metrics.temperature_c.toFixed(0) : "—"}</td>
+                <td>{current && miner.metrics.fan_pct !== null ? miner.metrics.fan_pct.toFixed(0) : "—"}</td>
+                <td>{current ? `${miner.metrics.accepted}/${miner.metrics.rejected}` : "—"}</td>
+                <td>{fleetUptime(current ? miner.uptime_seconds : null)}</td>
+                <td className="fleet-miner-actions"><div className="fleet-actions">{profileActions(detail, miner)}<button type="button" className="fleet-btn fleet-small" disabled={busy || !canControl || !current || miner.running || !profile} onClick={() => { const before = profile!; setEditor({ rig: detail, config: detail.config!, before, draft: { ...before } }); }}>{t("Modifier", "Edit")}</button></div></td>
+              </tr>;
+            })}</tbody>
+          </table></div> : <p>{t("Aucun état de profil reçu.", "No profile status received.")}</p>}
+          <div className="fleet-callout">{t("Démarrer et Redémarrer respectent le planning. Forcer crée une dérogation explicite pour cette session. Les autorisations root se valident sur le rig.", "Start and Restart respect schedules. Force explicitly overrides them for this session. Root approvals are granted on the rig.")}</div>
+          <small>{t("Arrêtez un profil avant d’en modifier les paramètres d’exécution. Les mesures de puissance viennent des moteurs, pas de la prise.", "Stop a profile before editing its execution settings. Power readings come from the engines, not the wall outlet.")}</small>
+        </>}
         {detailTab === "gpu" && <>{detail.snapshot?.gpu_inventory_available && detail.snapshot.gpu_inventory.length ? <div className="fleet-info-grid">{detail.snapshot.gpu_inventory.map(g => <div key={g.selector}><div className="fleet-info-label">GPU {g.selector}</div><div className="fleet-info-value">{g.name}<br/>{g.pci_bus || "—"}</div></div>)}</div> : <div className="fleet-callout">{t("L’agent n’a pas d’inventaire GPU vérifié en cache. Aucun GPU ou identifiant n’est déduit des indices du système.", "The agent has no verified cached GPU inventory. No GPU or selector is inferred from system indices.")}</div>}<div className="fleet-info-grid">{detail.snapshot?.status.map(m => <div key={m.id}><div className="fleet-info-label">{m.name} · {m.algorithm}</div><div className="fleet-info-value">{fresh(detail) ? `${fleetHashrate(m.metrics.hashrate_hps)} · ${m.metrics.power_w === null ? '—' : m.metrics.power_w + ' W GPU'} · ${m.metrics.temperature_c === null ? '—' : m.metrics.temperature_c + ' °C'}` : t("Mesures périmées", "Stale readings")}</div></div>)}</div><small>{t("Les mesures rapportées par les moteurs ne sont pas une mesure à la prise.", "Engine-reported readings are not wall-power measurements.")}</small></>}
         {detailTab === "schedules" && <><div className="fleet-section-head"><h3>{t("Planning local", "Local schedules")}</h3><button type="button" className="fleet-btn fleet-small" disabled={busy || !canControl || !fresh(detail) || !detail.config} onClick={() => setScheduleEditor({ rig: detail, config: detail.config!, schedules: detail.config!.schedules.map(s => ({ ...s, days: [...s.days], miner_ids: [...s.miner_ids] })) })}>{t("Modifier les plannings", "Edit schedules")}</button></div><div className="fleet-profile-list">{detail.config?.schedules.map(s => <div className="fleet-profile" key={s.id}><div><h3>{s.name}</h3><small>{s.start}–{s.end} · {t("jours", "days")} {s.days.join(', ')} · {detail.config!.timezone}</small><small>{s.miner_ids.length ? s.miner_ids.map(id => detail.config!.profiles.find(p => p.id === id)?.name || id).join(', ') : t("Aucun profil associé · inactif", "No profiles assigned · inactive")}</small></div><Badge kind={s.enabled ? "good" : ""}>{s.enabled ? t("Actif", "Enabled") : t("Désactivé", "Disabled")}</Badge></div>)}{!detail.config ? <p>{t("Configuration non confirmée : plannings indisponibles.", "Unconfirmed configuration: schedules unavailable.")}</p> : !detail.config.schedules.length && <p>{t("Aucun planning enregistré sur ce rig.", "No schedule saved on this rig.")}</p>}</div><small>{t("Les horaires utilisent le fuseau et l’horloge de l’agent, pas ceux de ce navigateur.", "Schedules use the agent's clock and timezone, not this browser's.")}</small></>}
         {detailTab === "logs" && <><div className="fleet-toolbar"><label className="fleet-field fleet-search">{t("Profil", "Profile")}<select value={logsProfile} onChange={e => { setLogsProfile(e.target.value); setLogs(null); setLogReceipt(null); }}><option value="">{t("Choisir un profil", "Select profile")}</option>{detail.snapshot?.status.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label><button type="button" className="fleet-btn" disabled={busy || !canControl || !fresh(detail) || !logsProfile} onClick={() => void loadLogs(detail)}>{t("Charger le journal", "Load logs")}</button></div>{logs ? <pre className="fleet-logs">{logs.lines.map(line => `${new Date(millis(line.ts)).toLocaleTimeString()} [${line.stream}] ${line.text}`).join('\n') || t("Journal vide", "Empty log")}</pre> : <div className="fleet-callout">{logReceipt ? t("Demande envoyée ; le résultat apparaîtra à réception de l’agent.", "Request queued; the result appears after the agent responds.") : t("Le journal est chargé uniquement à votre demande. Les données sensibles sont masquées par l’agent.", "Logs load only when requested. The agent redacts sensitive data.")}</div>}</>}

@@ -13,6 +13,8 @@ Introduced in **0.8.0**, Fleet is **off by default**. It activates only when you
 3. On another rig, open Fleet and join using the address and invitation key obtained directly from the coordinator's owner. Check the displayed certificate fingerprint through that trusted channel if the address or invitation came from someone else.
 4. Repeat with a new invitation for each rig. An enrolled MinerDesk instance can operate the group; only enroll computers and accounts you trust with that access.
 
+Since **0.8.1**, joining asks only for the coordinator address and invitation key. The rig label comes from the local computer's name. Existing names and pairings are retained during updates; older clients may still provide an explicit name.
+
 **LAN discovery is optional.** Its Find action broadcasts a small discovery request and returns public coordinator hints. Finding a machine does not authorize it, verify its identity or pair it. Discovery does not include enrollment secrets or credentials. Separate networks normally require entering the coordinator address manually.
 
 Agents contact the coordinator using outgoing HTTPS requests and a certificate pinned by the invitation. They have credentials separate from controller credentials. The default Fleet listener is **TCP 17889** and optional discovery is **UDP 17990**. No rig needs to expose its existing MinerDesk HTTP port to the Internet. For access across networks, use a trusted VPN, or deliberately configure a reachable coordinator HTTPS address, router port forwarding and host firewall rules. MinerDesk does not automatically configure UPnP mappings. The existing LAN API on port 17888 is a different interface: do not expose that plain HTTP interface publicly.
@@ -20,6 +22,8 @@ Agents contact the coordinator using outgoing HTTPS requests and a certificate p
 ### What remote control changes
 
 Fleet supports status and filtered recent logs, schedule-aware Start/Restart/Resume, Stop and an explicit Force action. Start respects the rig's configured windows; **Force mining** is the separate unlimited override. A command acknowledgement describes its actual result, including waiting for a schedule. A rig shown offline may still be mining; the dashboard shows when its state was last received.
+
+**Open** displays the selected rig's dashboard summary and miner table together: hashrate, engine-reported watts, temperature, fan percentage when available, accepted/rejected shares and uptime. These use the same runtime metrics as that rig's local dashboard and refresh with the Fleet view every five seconds. Missing measurements remain unknown; disconnected/stale rigs do not contribute to current totals.
 
 Profile edits apply to an existing profile. They can change its name, enable state, algorithm, pool, public receiving address, worker, GPU selection and supported tuning fields. The rig must stop that profile before a remote edit is saved. Changes do not start it automatically. This version deliberately keeps these fields local:
 
@@ -67,6 +71,8 @@ Fleet permet de surveiller et piloter des rigs Windows et Linux depuis les insta
 Ajouté dans la version **0.8.0**, Fleet est **désactivé par défaut**. Il s'active lorsque vous choisissez de créer ou de rejoindre un groupe.
 
 Sur le coordinateur, créez une invitation puis transmettez directement son adresse et sa clé au propriétaire du rig à associer. L'invitation est temporaire et à usage unique ; utilisez une nouvelle invitation pour chaque rig. Elle transporte le certificat public nécessaire à la connexion HTTPS, ainsi qu'un secret d'association : gardez la clé complète privée. Une instance associée peut piloter le groupe ; n'associez que des ordinateurs et comptes de confiance. La découverte LAN facilite la recherche d'un coordinateur mais n'accorde aucun accès.
+
+Depuis **0.8.1**, rejoindre la flotte demande seulement l'adresse et la clé ; le nom de la machine est automatique. Les noms et associations existants sont conservés. **Ouvrir** présente le résumé et le tableau des mineurs avec les mêmes mesures que le dashboard local : hashrate, watts, température, ventilation disponible, shares et durée. La vue s'actualise toutes les cinq secondes ; les mesures absentes restent inconnues et les rigs déconnectés sont exclus des totaux actuels.
 
 Les rigs établissent eux-mêmes leurs connexions HTTPS vers le coordinateur, sur **TCP 17889** par défaut. La découverte LAN facultative utilise **UDP 17990**. Pour plusieurs réseaux, préférez un VPN de confiance ou configurez volontairement une adresse HTTPS joignable, la redirection du port du coordinateur et son pare-feu. MinerDesk n'ajoute pas automatiquement de règle UPnP. N'exposez pas directement l'ancienne interface HTTP de MinerDesk sur Internet.
 

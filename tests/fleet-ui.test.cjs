@@ -87,6 +87,103 @@ test('first install has no fictitious rigs and honors server-provided local acce
   } finally { await act(async()=>instance.unmount()); }
 });
 
+test('joining needs only the coordinator URL and pairing key, with no personal machine name', async () => {
+  let data=view([],{setup:{...view().setup,name:'',mode:'standalone'}});const calls=[];
+  const request=async(p,o)=>{calls.push({p,o});if(p==='/api/fleet')return data;
+    if(p==='/api/fleet/join'){data=view([rig('detected-host')],{setup:{...view().setup,mode:'member',name:'detected-host'}});return data;}
+    throw new Error('Unexpected '+p);
+  };
+  const {instance}=await render(data,request);
+  try {
+    const form=instance.root.findAllByType('form').find(f=>f.findAllByType('button').some(b=>text(b)==='Join'));
+    const inputs=form.findAllByType('input');
+    assert.deepEqual(inputs.map(i=>i.props.type),['url','password']);
+    assert(inputs.every(i=>i.props.required));assert.equal(button(instance,'Join').props.disabled,true);
+    await act(async()=>{
+      inputs[0].props.onChange({target:{value:'https://192.168.1.10:17889'}});
+      inputs[1].props.onChange({target:{value:' pairing-fixture '}});
+    });
+    assert.equal(button(instance,'Join').props.disabled,false);
+    await act(async()=>{form.props.onSubmit({preventDefault(){}});await Promise.resolve();});
+    const sent=calls.filter(c=>c.p==='/api/fleet/join');assert.equal(sent.length,1);
+    assert.deepEqual(JSON.parse(sent[0].o.body),{address:'https://192.168.1.10:17889',key:'pairing-fixture'});
+    assert.match(text(instance.toJSON()),/Rig detected-host/);
+    assert(!instance.root.findAllByType('input').some(i=>i.props.type==='password'));
+  } finally {await act(async()=>instance.unmount());}
+});
+
+test('Open shows actual dashboard telemetry, pool and GPU assignments, retaining zero versus unknown', async () => {
+  const r=rig('telemetry');
+  const active=miner('telemetry','pearlhash',true);
+  Object.assign(active,{uptime_seconds:90061,dev_tip_active:true});
+  active.metrics={hashrate_hps:123456789,power_w:183.6,temperature_c:67.8,fan_pct:42,accepted:321,rejected:7};
+  const unknown=miner('unknown','quantus',true);unknown.uptime_seconds=0;
+  unknown.metrics={hashrate_hps:null,power_w:null,temperature_c:null,fan_pct:null,accepted:0,rejected:0};
+  const zero=miner('zero');zero.uptime_seconds=0;zero.metrics={hashrate_hps:0,power_w:0,temperature_c:0,fan_pct:0,accepted:0,rejected:0};
+  r.snapshot.status=[active,unknown,zero];r.config.profiles.push(profile('unknown'),profile('zero'));
+  const {instance}=await render(view([r]));
+  try {
+    await click(instance,'Open');
+    const table=instance.root.findByProps({className:'fleet-table fleet-miner-table'});
+    const headings=table.findAllByType('th').map(text);
+    assert.deepEqual(headings,['Profile','Engine','Algo / GPU','State','Hashrate','W','°C','Fan %','A/R','Uptime','Actions']);
+    const rows=table.findByType('tbody').findAllByType('tr').map(row=>row.findAllByType('td').map(text));
+    assert.match(rows[0][0],/pool\.example:3360/);assert.equal(rows[0][1],'srbminer');assert.equal(rows[0][2],'pearlhashGPU 0');
+    assert.match(rows[0][3],/Within schedule/);assert.match(rows[0][3],/Developer tip active/);
+    assert.deepEqual(rows[0].slice(4,10),['123 MH/s','184','68','42','321/7','25:01:01']);
+    assert.deepEqual(rows[1].slice(4,10),['—','—','—','—','0/0','00:00:00']);
+    assert.deepEqual(rows[2].slice(4,10),['0 H/s','0','0','0','0/0','00:00:00']);
+    const summary=instance.root.findByProps({'aria-label':'Rig summary'});
+    assert.deepEqual(summary.findAllByProps({className:'fleet-kpi-value'}).map(text),['2 / 3','184 W','68 °C','321 / 7']);
+    assert(!text(table).includes('public-fixture'));assert(!text(table).includes('wallet'));
+  } finally {await act(async()=>instance.unmount());}
+});
+
+test('the selected dashboard follows automatic polls and suppresses metrics when the rig becomes stale', async () => {
+  const originalSetTimeout=global.setTimeout,originalClearTimeout=global.clearTimeout,polls=[];
+  const timers=new Set();let instance;
+  global.setTimeout=(callback,delay,...args)=>{
+    if(delay!==5000)return originalSetTimeout(callback,delay,...args);
+    const timer={callback:()=>callback(...args)};timers.add(timer);polls.push(timer);return timer;
+  };
+  global.clearTimeout=timer=>{if(!timers.delete(timer))originalClearTimeout(timer);};
+  let data=view([rig('live')]);data.rigs[0].snapshot.status=[miner('live','pearlhash',true)];
+  const calls=[],request=async(p,o)=>{calls.push({p,o});if(p==='/api/fleet')return data;throw new Error(p);};
+  const readings=()=>instance.root.findByProps({className:'fleet-table fleet-miner-table'}).findByType('tbody').findAllByType('td').slice(4,10).map(text);
+  const poll=async()=>{const next=polls.shift();assert(next,'Missing scheduled Fleet refresh');timers.delete(next);await act(async()=>{next.callback();await Promise.resolve();});};
+  try {
+    ({instance}=await render(data,request));await click(instance,'Open');
+    assert.deepEqual(readings(),['1.00 TH/s','100','—','—','1/0','00:00:10']);
+    data=structuredClone(data);const active=data.rigs[0].snapshot.status[0];
+    active.metrics={hashrate_hps:2250000,power_w:202,temperature_c:71,fan_pct:58,accepted:47,rejected:2};active.uptime_seconds=3661;
+    await poll();
+    assert.deepEqual(readings(),['2.25 MH/s','202','71','58','47/2','01:01:01']);
+    assert(button(instance,'Close details'));assert.match(text(instance.root.findByProps({'aria-label':'Rig summary'})),/47 \/ 2/);
+    data=structuredClone(data);data.rigs[0].last_seen=Math.floor(Date.now()/1000)-90;
+    await poll();
+    assert.deepEqual(readings(),['—','—','—','—','—','—']);
+    assert.match(text(instance.toJSON()),/Current mining is unknown/);
+    assert.equal(button(instance,'Stop').props.disabled,true);
+    assert.equal(calls.filter(c=>c.p==='/api/fleet').length,3);assert.equal(calls.filter(c=>c.p==='/api/fleet/commands').length,0);
+  } finally {
+    if(instance)await act(async()=>instance.unmount());
+    global.setTimeout=originalSetTimeout;global.clearTimeout=originalClearTimeout;
+  }
+});
+
+test('current dashboard totals exclude stale miners and preserve reported zero readings', () => {
+  const zero=rig('zero');zero.snapshot.status=[miner('zero','pearlhash',true)];
+  zero.snapshot.status[0].metrics={hashrate_hps:0,power_w:0,temperature_c:0,fan_pct:0,accepted:0,rejected:0};
+  const stale=rig('stale',{last_seen:Math.floor(Date.now()/1000)-90});stale.snapshot.status=[miner('stale','quantus',true)];
+  stale.snapshot.status[0].metrics={hashrate_hps:999,power_w:999,temperature_c:999,fan_pct:99,accepted:999,rejected:999};
+  const result=fleetSummary([zero,stale]);
+  assert.equal(result.activeMiners,1);assert.equal(result.power,0);assert.equal(result.temperature,0);assert.equal(result.accepted,0);assert.equal(result.rejected,0);
+  const unknown=rig('unknown');unknown.snapshot.status=[miner('unknown','pearlhash',true)];
+  unknown.snapshot.status[0].metrics.power_w=null;
+  assert.equal(fleetSummary([unknown]).power,null);assert.equal(fleetSummary([unknown]).temperature,null);
+  const offline=fleetSummary([stale]);assert.equal(offline.accepted,null);assert.equal(offline.rejected,null);
+});
+
 test('bulk review sends only ready rigs and does not silently force schedules', async () => {
   const good=rig('ready'),off=rig('offline',{online:false}),root=rig('root'); root.snapshot.status[0].root_authorization='required';
   const data=view([good,off,root]),calls=[];
@@ -178,6 +275,9 @@ test('malformed nested snapshots never become healthy empty telemetry', () => {
     s=>({...s,status:[{...s.status[0],metrics:null}]}),
     s=>({...s,status:[{...s.status[0],metrics:{...s.status[0].metrics,hashrate_hps:'1000'}}]}),
     s=>({...s,status:[{...s.status[0],mode:{toString:1}}]}),
+    s=>({...s,status:[{...s.status[0],uptime_seconds:'10'}]}),
+    s=>({...s,status:[{...s.status[0],dev_tip_active:'yes'}]}),
+    s=>({...s,status:[{...s.status[0],metrics:{...s.status[0].metrics,accepted:'1'}}]}),
     s=>({...s,gpu_inventory:[{selector:0,name:{}}]}),
   ];
   for(const defect of defects){const r=rig('broken');r.snapshot=defect(r.snapshot);const result=decodeFleetView(view([r,rig('good')]));

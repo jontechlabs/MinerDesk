@@ -58,6 +58,7 @@ impl FleetCoreBridge {
                 "gpu_ids":safe_label(&s.profile.gpu_ids,512),"running":s.runtime.running,"mode":mode,
                 "scheduled_now":s.scheduled_now,"has_schedule":s.has_schedule,
                 "scheduler_paused":s.scheduler_paused,"uptime_seconds":s.runtime.uptime_seconds,
+                "dev_tip_active":s.runtime.dev_tip_active,
                 "metrics":s.runtime.metrics,"last_error":redact(&s.runtime.last_error,&cfg),
                 "root_authorization":root_state(&s.profile),
             })
@@ -305,10 +306,7 @@ fn ensure_not_expired(expires_at: u64) -> Result<(), String> {
 }
 
 fn machine_name() -> String {
-    std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .map(|name| safe_label(&name, 128))
-        .unwrap_or_else(|_| "MinerDesk rig".into())
+    super::persistence::local_name()
 }
 
 fn root_state(p: &MinerProfile) -> &'static str {
@@ -760,6 +758,85 @@ mod tests {
         c.miners = vec![profile()];
         c.web.token = "secret-web-token".into();
         c
+    }
+    #[tokio::test]
+    async fn running_local_dashboard_metrics_survive_fleet_snapshot_validation() {
+        // Represent an already-running miner without launching any executable.
+        // Exercise the actual local status handler as well as the Fleet allowlist.
+        let directory = tempfile::tempdir().unwrap();
+        let core = CoreState::load_from_path(directory.path().join("config.json")).unwrap();
+        *core.config.write().unwrap() = cfg();
+        core.runtime.lock().unwrap().insert(
+            "rig-test".into(),
+            crate::MinerRuntimeView {
+                id: "rig-test".into(),
+                running: true,
+                started_at: Some(crate::unix_now() - 3900),
+                started_by: "manual".into(),
+                dev_tip_active: true,
+                metrics: crate::MinerMetrics {
+                    hashrate_hps: Some(78.42e12),
+                    power_w: Some(453.5),
+                    temperature_c: Some(62.0),
+                    fan_pct: Some(71.0),
+                    accepted: 4321,
+                    rejected: 7,
+                },
+                ..Default::default()
+            },
+        );
+        let state = crate::WebState {
+            core: core.clone(),
+            fleet: None,
+            token: Some("fixture-access".into()),
+            headless: true,
+            desktop_owned: false,
+            desktop_leases: Arc::new(std::sync::Mutex::new(crate::DesktopLeaseState::default())),
+        };
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-minerdesk-token", "fixture-access".parse().unwrap());
+        let response = crate::api_status(axum::extract::State(state), headers).await;
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let local: Value = serde_json::from_slice(&bytes).unwrap();
+        let local_miner = &local[0];
+        let bridge = FleetCoreBridge::new(core.clone());
+        let snapshot = super::super::validation::snapshot(bridge.snapshot_value()).unwrap();
+        let fleet_miner = &snapshot["status"][0];
+        assert_eq!(fleet_miner["metrics"], local_miner["runtime"]["metrics"]);
+        for field in ["running", "dev_tip_active"] {
+            assert_eq!(fleet_miner[field], local_miner["runtime"][field]);
+        }
+        for field in ["id", "name", "engine", "algorithm", "gpu_ids", "enabled"] {
+            assert_eq!(fleet_miner[field], local_miner["profile"][field]);
+        }
+        let local_uptime = local_miner["runtime"]["uptime_seconds"].as_u64().unwrap();
+        let fleet_uptime = fleet_miner["uptime_seconds"].as_u64().unwrap();
+        assert!(local_uptime >= 3900 && fleet_uptime.abs_diff(local_uptime) <= 1);
+        let encoded = snapshot.to_string();
+        for private in [
+            "secret-pool-password",
+            "secret-web-token",
+            "/private/miner.exe",
+            "local-only-value",
+        ] {
+            assert!(!encoded.contains(private), "leaked {private}");
+        }
+        assert!(core.children.lock().unwrap().is_empty());
+
+        // Older agents have the same metrics but no developer-tip display flag.
+        let mut old_snapshot = snapshot.clone();
+        old_snapshot["status"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("dev_tip_active");
+        let compatible = super::super::validation::snapshot(old_snapshot).unwrap();
+        assert_eq!(compatible["status"][0]["dev_tip_active"], false);
+        let mut invalid = snapshot;
+        invalid["status"][0]["dev_tip_active"] = json!("true");
+        assert!(super::super::validation::snapshot(invalid).is_err());
     }
     #[test]
     fn safe_configuration_never_serializes_private_fields() {

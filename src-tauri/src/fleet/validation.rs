@@ -49,6 +49,8 @@ struct Miner {
     has_schedule: bool,
     scheduler_paused: bool,
     uptime_seconds: u64,
+    #[serde(default)]
+    dev_tip_active: bool,
     metrics: Metrics,
     last_error: String,
     root_authorization: RootState,

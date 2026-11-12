@@ -6,7 +6,7 @@
 
 MinerDesk centralise les profils, le lancement, la surveillance et la planification de plusieurs moteurs de minage dans une application de bureau et une interface web. C'est un orchestrateur : le minage est effectué par des logiciels tiers téléchargés séparément.
 
-**Nouveau dans la version 0.8.0 : [MinerDesk Fleet](FLEET.md)** permet de piloter un groupe de rigs Windows et Linux depuis n'importe quelle instance associée.
+**MinerDesk 0.8.1 intègre [Fleet](FLEET.md) dans la version stable** pour piloter un groupe de rigs Windows et Linux depuis n'importe quelle instance associée.
 
 [Télécharger la dernière version](https://github.com/jontechlabs/MinerDesk/releases/latest) · [Documentation complète en anglais](../README.md) · [Historique](../CHANGELOG.md)
 
@@ -29,17 +29,17 @@ Les réglages disponibles dépendent du moteur et du matériel. Les statistiques
 
 ## Installation
 
-**Windows 10/11 x64 :** télécharger `MinerDesk_0.8.0_x64-setup.exe` depuis la Release. L'installeur configure le backend privilégié ; l'interface graphique reste exécutée comme utilisateur normal. L'archive portable s'appelle `MinerDesk_0.8.0_windows-x64.zip`.
+**Windows 10/11 x64 :** télécharger `MinerDesk_0.8.1_x64-setup.exe` depuis la Release. L'installeur configure le backend privilégié ; l'interface graphique reste exécutée comme utilisateur normal. L'archive portable s'appelle `MinerDesk_0.8.1_windows-x64.zip`.
 
 **Linux x64 compatible Debian :** télécharger le paquet `.deb`, puis :
 
 ```bash
-sudo apt install ./MinerDesk_0.8.0_amd64.deb
+sudo apt install ./MinerDesk_0.8.1_amd64.deb
 ```
 
 La signature Authenticode Windows reste en attente. Les mises à jour 0.7.24 des installateurs, AppImages et paquets Debian disposent d’une signature cryptographique vérifiée par MinerDesk. Comparez aussi leur SHA-256 au fichier `SHA256SUMS.txt` de la Release.
 
-Les autres formats Linux sont `MinerDesk_0.8.0_amd64.AppImage` et `MinerDesk_0.8.0_linux-x64.tar.gz`. Consultez les notes de la Release pour connaître les systèmes et paquets effectivement vérifiés.
+Les autres formats Linux sont `MinerDesk_0.8.1_amd64.AppImage` et `MinerDesk_0.8.1_linux-x64.tar.gz`. Consultez les notes de la Release pour connaître les systèmes et paquets effectivement vérifiés.
 
 À partir de 0.7.24, recherche des versions stables toutes les 6 heures, confirmation avant installation, progression du téléchargement et lien GitHub lorsque la mise à jour automatique est indisponible. Installez 0.7.24 une première fois pour recevoir les prochaines mises à jour. [Guide des mises à jour](UPDATES.md).
 

@@ -142,12 +142,13 @@ def main():
                 return call(a.url, "/api/fleet/invite", {"expires_in_seconds": 300})
 
             first = invite()
-            call(b.url, "/api/fleet/join", {"name": "Linux test rig", "address": address, "key": first["key"]})
+            joined = call(b.url, "/api/fleet/join", {"address": address, "key": first["key"]})
+            assert joined["setup"]["name"] == initial[1]["setup"]["name"]
             call(c.url, "/api/fleet/join", {"name": "Replay test", "address": address, "key": first["key"]}, status=400)
             assert c.view()["setup"]["mode"] == "standalone"
             second = invite()
             call(c.url, "/api/fleet/join", {"name": "Third test rig", "address": address, "key": second["key"]})
-            checks.append("Pinned HTTPS pairing; one-use invitation rejects replay")
+            checks.append("URL-and-key pairing derives the machine name; pinned HTTPS and one-use invitations reject replay")
 
             def all_online():
                 view = a.view()

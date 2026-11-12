@@ -392,7 +392,12 @@ impl FleetManager {
         if data.member.is_some() || data.hub.is_some() {
             return Err("Leave or disable the existing Fleet first".into());
         }
-        if !valid_name(&request.name) || request.key.len() > 12000 {
+        let name = if request.name.trim().is_empty() {
+            local_name()
+        } else {
+            request.name.trim().to_owned()
+        };
+        if !valid_name(&name) || request.key.len() > 12000 {
             return Err("Invalid rig name or invitation".into());
         }
         let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -410,7 +415,7 @@ impl FleetManager {
             return Err("Expired invitation or invalid TLS trust information".into());
         }
         let client = transport::pinned_client(&key.certificate_pem)?;
-        let response=client.post(format!("{address}/fleet/v1/enroll")).json(&EnrollRequest{code:key.code,rig_id:data.rig_id,name:request.name.trim().into()}).send().await.map_err(|_|"Cannot securely connect to the coordinator; verify its address and invitation certificate".to_string())?;
+        let response=client.post(format!("{address}/fleet/v1/enroll")).json(&EnrollRequest{code:key.code,rig_id:data.rig_id,name:name.clone()}).send().await.map_err(|_|"Cannot securely connect to the coordinator; verify its address and invitation certificate".to_string())?;
         let enrolled: EnrollResponse = transport::response(response).await?;
         if enrolled.fleet_id != key.fleet_id
             || enrolled.agent_token.len() > 128
@@ -420,7 +425,7 @@ impl FleetManager {
             return Err("Invalid coordinator enrollment response".into());
         }
         self.change(|d| {
-            d.name = request.name.trim().into();
+            d.name = name;
             for old in d.executed.values_mut() {
                 old.delivered = true;
             }

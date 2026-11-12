@@ -7,6 +7,8 @@ export type FleetMiner = {
   running: boolean; mode: "schedule" | "forced" | "waiting" | "manual" | "stopped";
   scheduled_now: boolean; has_schedule: boolean; scheduler_paused: boolean;
   uptime_seconds: number; metrics: MinerMetrics; last_error: string;
+  /** Older agents do not report the developer-tip session flag. */
+  dev_tip_active?: boolean;
   root_authorization: FleetRootAuthorization;
 };
 export type FleetSnapshot = {
@@ -82,7 +84,8 @@ function validMiner(value: unknown): value is FleetMiner {
   return record(value) && textFields(value, ["id", "name", "engine", "algorithm", "gpu_ids", "last_error"])
     && value.id !== "" && boolFields(value, ["enabled", "running", "scheduled_now", "has_schedule", "scheduler_paused"])
     && enumValue(value.mode, ["schedule", "forced", "waiting", "manual", "stopped"])
-    && enumValue(value.root_authorization, rootStates) && nonnegative(value.uptime_seconds) && validMetrics(value.metrics);
+    && enumValue(value.root_authorization, rootStates) && nonnegative(value.uptime_seconds) && validMetrics(value.metrics)
+    && (value.dev_tip_active === undefined || typeof value.dev_tip_active === "boolean");
 }
 function validSnapshot(value: unknown): value is FleetSnapshot {
   return record(value) && enumValue(value.health, ["online", "shutting_down"])
@@ -174,8 +177,12 @@ export function fleetSummary(rigs: FleetRig[]) {
   const waiting = online.filter(r => !r.snapshot!.status.some(m => m.running)
     && r.snapshot!.status.some(m => m.mode === "waiting"));
   const totals = new Map<string, number>();
-  let power = 0, powerReadings = 0;
+  let power = 0, powerReadings = 0, temperature: number | null = null;
+  let activeMiners = 0, accepted = 0, rejected = 0;
   for (const r of online) for (const m of r.snapshot!.status) if (m.running) {
+    ++activeMiners;
+    accepted += m.metrics.accepted;
+    rejected += m.metrics.rejected;
     const algorithm = m.algorithm.trim() || "?";
     if (m.metrics.hashrate_hps !== null && Number.isFinite(m.metrics.hashrate_hps)) {
       totals.set(algorithm, (totals.get(algorithm) || 0) + m.metrics.hashrate_hps);
@@ -183,15 +190,26 @@ export function fleetSummary(rigs: FleetRig[]) {
     if (m.metrics.power_w !== null && Number.isFinite(m.metrics.power_w)) {
       power += m.metrics.power_w; ++powerReadings;
     }
+    if (m.metrics.temperature_c !== null && Number.isFinite(m.metrics.temperature_c)) {
+      temperature = temperature === null ? m.metrics.temperature_c : Math.max(temperature, m.metrics.temperature_c);
+    }
   }
   return { online: online.length, running: running.length, waiting: waiting.length,
-    unknown: rigs.length - online.length, power: powerReadings ? power : null, powerReadings, algorithms: Object.fromEntries(totals) };
+    unknown: rigs.length - online.length, power: powerReadings ? power : null, powerReadings,
+    activeMiners, temperature, accepted: activeMiners ? accepted : null, rejected: activeMiners ? rejected : null,
+    algorithms: Object.fromEntries(totals) };
 }
 export function fleetHashrate(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   for (const [scale, unit] of [[1e15,"PH/s"],[1e12,"TH/s"],[1e9,"GH/s"],[1e6,"MH/s"],[1e3,"kH/s"]] as const)
-    if (value >= scale) return `${(value / scale).toFixed(2)} ${unit}`;
+    if (value >= scale) return `${(value / scale).toFixed(value / scale >= 100 ? 0 : 2)} ${unit}`;
   return `${value.toFixed(0)} H/s`;
+}
+export function fleetUptime(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return "—";
+  const whole = Math.floor(seconds);
+  return [Math.floor(whole / 3600), Math.floor(whole % 3600 / 60), whole % 60]
+    .map(part => String(part).padStart(2, "0")).join(":");
 }
 export function fleetPreflight(rig: FleetRig, profileId: string, action: FleetAction): string | null {
   if (!fleetRigFresh(rig)) return "offline";

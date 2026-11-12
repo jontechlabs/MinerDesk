@@ -177,16 +177,55 @@ impl Store {
         Ok(result)
     }
 }
-fn local_name() -> String {
-    std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "MinerDesk rig".into())
-        .chars()
-        .take(80)
-        .collect()
+pub(super) fn local_name() -> String {
+    let mut name = ["COMPUTERNAME", "HOSTNAME"]
+        .iter()
+        .filter_map(|key| std::env::var(key).ok())
+        .chain(std::iter::once_with(system_hostname).flatten())
+        .map(|name| {
+            name.chars()
+                .filter(|c| !c.is_control())
+                .collect::<String>()
+                .trim()
+                .to_owned()
+        })
+        .find(|name| !name.is_empty())
+        .unwrap_or_else(|| "MinerDesk rig".into());
+    // Enrollment labels have an 80-byte limit, including non-ASCII hostnames.
+    while name.len() > 80 {
+        name.pop();
+    }
+    name
 }
+fn system_hostname() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        // GUI/service launches need not inherit a HOSTNAME environment variable.
+        let mut buffer = [0u8; 256];
+        // SAFETY: gethostname writes at most buffer.len() bytes into this buffer.
+        if unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) } != 0 {
+            return None;
+        }
+        let end = buffer
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(buffer.len());
+        Some(String::from_utf8_lossy(&buffer[..end]).into_owned())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[test]
+fn linux_hostname_is_available_without_shell_environment() {
+    let name = system_hostname().unwrap();
+    assert!(!name.trim().is_empty());
+    assert!(!name.contains('\0'));
+}
+
 fn private_directory(path: &Path) -> Result<(), String> {
     if path.exists() {
         let meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
