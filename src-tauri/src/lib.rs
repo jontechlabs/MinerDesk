@@ -29,11 +29,12 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::Manager;
-#[cfg(target_os = "windows")]
 use tauri::{
     menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    tray::TrayIconBuilder,
 };
+#[cfg(target_os = "windows")]
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tower_http::cors::CorsLayer;
 mod schedule_control;
 mod app_updates;
@@ -42,6 +43,8 @@ mod mining_diagnostics;
 mod onezerominer;
 mod peakminer;
 mod gpu_diagnostic_error;
+mod fleet;
+mod fleet_api;
 use gpu_diagnostic_error::GpuDiagnosticError;
 #[cfg(target_os = "linux")]
 mod linux_terminal;
@@ -643,6 +646,9 @@ pub struct CoreState {
     // scheduler tick using an older status must not undo a completed Stop.
     lifecycle: Mutex<()>,
     shutting_down: AtomicBool,
+    // Joining or hosting a Fleet explicitly opts the backend into autonomous
+    // operation. Losing a UI or coordinator connection must not stop mining.
+    fleet_enabled: AtomicBool,
     manual_schedule: Mutex<ManualScheduleControl>,
     config_path: PathBuf,
     config_io: Mutex<()>,
@@ -662,7 +668,10 @@ pub struct CoreState {
 
 impl CoreState {
     fn load() -> Result<Arc<Self>, String> {
-        let config_path = config_file_path()?;
+        Self::load_from_path(config_file_path()?)
+    }
+
+    fn load_from_path(config_path: PathBuf) -> Result<Arc<Self>, String> {
         if let Some(parent) = config_path.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("Création config: {e}"))?;
         }
@@ -687,6 +696,7 @@ impl CoreState {
             desktop_web: desktop_web::DesktopWeb::default(),
             lifecycle: Mutex::new(()),
             shutting_down: AtomicBool::new(false),
+            fleet_enabled: AtomicBool::new(false),
             manual_schedule: Mutex::new(ManualScheduleControl::from_snapshot(stopped)),
             config_path,
             config_io: Mutex::new(()),
@@ -1014,7 +1024,17 @@ impl CoreState {
     }
 
     fn start_miner(self: &Arc<Self>, id: &str, started_by: &str) -> Result<(), String> {
+        self.start_miner_with_interaction(id, started_by, true)
+    }
+
+    // Fleet commands must never trigger an administrator dialog on an unattended
+    // machine. The approved local root runner still validates its grant.
+    fn start_miner_with_interaction(self: &Arc<Self>, id: &str, started_by: &str, interactive: bool) -> Result<(), String> {
         let _lifecycle = self.lifecycle.lock().map_err(|_| "Lifecycle lock poisoned".to_string())?;
+        self.start_miner_locked_with_interaction(id, started_by, interactive)
+    }
+
+    fn start_miner_locked_with_interaction(self: &Arc<Self>, id: &str, started_by: &str, interactive: bool) -> Result<(), String> {
         let active = schedule_occurrences(&self.config().schedules, Local::now());
         if started_by == "schedule" && (!active.contains_key(id) || self.manual_schedule.lock()
             .map_err(|_| "Scheduler lock poisoned".to_string())?.is_paused(id, &active)) { return Ok(()); }
@@ -1028,7 +1048,7 @@ impl CoreState {
             // before the window closed and be killed by the next scheduler tick.
             self.cancel_power_action();
         }
-        self.start_miner_mode_locked(id, started_by, false, true)?;
+        self.start_miner_mode_locked(id, started_by, false, interactive)?;
         if started_by == "manual" {
             // Force mining may explicitly take ownership of an already-running
             // scheduled session; do not leave its origin as "schedule".
@@ -1050,6 +1070,10 @@ impl CoreState {
     // Caller holds lifecycle; evaluate the clock after acquiring it, never from
     // an earlier UI request or a snapshot taken before a slow polkit operation.
     fn start_miner_respecting_schedule_locked(self: &Arc<Self>, id: &str, restart: bool, now: chrono::DateTime<Local>) -> Result<&'static str, String> {
+        self.start_miner_respecting_schedule_locked_with_interaction(id, restart, now, true)
+    }
+
+    fn start_miner_respecting_schedule_locked_with_interaction(self: &Arc<Self>, id: &str, restart: bool, now: chrono::DateTime<Local>, interactive: bool) -> Result<&'static str, String> {
         if self.shutting_down.load(Ordering::SeqCst) { return Err("MinerDesk is shutting down".into()); }
         let cfg = self.config();
         let profile = cfg.miners.iter().find(|m| m.id == id).ok_or_else(|| format!("Profil introuvable: {id}"))?;
@@ -1059,7 +1083,7 @@ impl CoreState {
         let origin = user_start_origin(has_schedule, active.contains_key(id), false);
         if restart || origin.is_none() { self.stop_miner_locked(id)?; }
         if let Some(origin) = origin {
-            self.start_miner_mode_locked(id, origin, false, true)?;
+            self.start_miner_mode_locked(id, origin, false, interactive)?;
             self.cancel_power_action();
         }
         // An ordinary Start also returns a running forced session to the
@@ -1243,6 +1267,10 @@ impl CoreState {
 
     fn stop_miner_manually(self: &Arc<Self>, id: &str) -> Result<(), String> {
         let _lifecycle = self.lifecycle.lock().map_err(|_| "Lifecycle lock poisoned".to_string())?;
+        self.stop_miner_manually_locked(id)
+    }
+
+    fn stop_miner_manually_locked(self: &Arc<Self>, id: &str) -> Result<(), String> {
         let active = schedule_occurrences(&self.config().schedules, Local::now());
         let changed = self.manual_schedule.lock().map_err(|_| "Scheduler lock poisoned".to_string())?.pause(id, &active);
         // Always stop, including when persistence fails (in-memory pause still
@@ -1509,7 +1537,7 @@ mod linux_mining_console_tests {
         let mut config = AppConfig::default(); config.miners = vec![profile]; config.schedules.clear();
         Arc::new(CoreState {
             desktop_web: desktop_web::DesktopWeb::default(),
-            lifecycle: Mutex::new(()), shutting_down: AtomicBool::new(false),
+            lifecycle: Mutex::new(()), shutting_down: AtomicBool::new(false), fleet_enabled: AtomicBool::new(false),
             manual_schedule: Mutex::new(ManualScheduleControl::from_snapshot(StopSnapshot::new())),
             config_path: dir.join("config.json"), config_io: Mutex::new(()), config: RwLock::new(config),
             children: Mutex::new(HashMap::new()), runtime: Mutex::new(HashMap::new()), logs: Mutex::new(HashMap::new()),
@@ -3023,7 +3051,7 @@ fn expected_md5(body: &str, asset_name: &str) -> Option<String> {
 async fn download_engine(engine: &str) -> Result<InstallResult, String> {
     let spec = engine_specs().into_iter().find(|s| s.id == engine).ok_or_else(|| "Moteur inconnu".to_string())?;
     let repo = spec.github_repo.ok_or_else(|| "Téléchargement automatique indisponible pour ce moteur".to_string())?;
-    let client = reqwest::Client::builder().user_agent("MinerDesk/0.7.39")
+    let client = reqwest::Client::builder().user_agent(concat!("MinerDesk/",env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(120))
         .build().map_err(|e| e.to_string())?;
     let release: GithubRelease = client.get(format!("https://api.github.com/repos/{repo}/releases/latest"))
@@ -3188,6 +3216,7 @@ struct DesktopLeaseState {
 #[derive(Clone)]
 struct WebState {
     core: Arc<CoreState>,
+    fleet: Option<Arc<fleet::FleetManager>>,
     token: Option<String>,
     headless: bool,
     desktop_owned: bool,
@@ -3196,13 +3225,21 @@ struct WebState {
 #[derive(Deserialize)]
 struct LogsQuery { limit: Option<usize> }
 #[derive(Serialize)]
-struct Health { platform: &'static str, linux_elevation_available: bool, version: &'static str, headless: bool, desktop_owned: bool, miner_crash_guard: bool, config_path: String, scheduler: bool, time: String }
+struct Health { platform: &'static str, linux_elevation_available: bool, version: &'static str, headless: bool, desktop_owned: bool, fleet_enabled: bool, miner_crash_guard: bool, config_path: String, scheduler: bool, time: String }
 
 fn api_auth(headers: &HeaderMap, state: &WebState) -> Result<(), Response> {
     // Requests originating from the same machine are tagged by a middleware and
     // may use the API without a token. Remote/LAN clients must provide the token.
-    if headers.get("x-minerdesk-local").and_then(|v| v.to_str().ok()) == Some("1") { return Ok(()); }
-    let Some(expected) = state.token.as_deref() else { return Ok(()); };
+    if headers.get("x-minerdesk-local").and_then(|v| v.to_str().ok()) == Some("1") {
+        let port = state.core.config.read().map(|c|c.web.desktop_api_port).unwrap_or(DEFAULT_WEB_PORT);
+        if root_authorization_origin(headers,port) { return Ok(()); }
+        return Err((StatusCode::FORBIDDEN,Json(json!({"error":"This browser origin cannot control the local MinerDesk API"}))).into_response());
+    }
+    // Missing configuration is never anonymous remote access, including a CLI
+    // listener specified by hostname rather than an IP address.
+    let Some(expected) = state.token.as_deref().filter(|value| !value.is_empty()) else {
+        return Err((StatusCode::UNAUTHORIZED,Json(json!({"error":"Remote MinerDesk access requires a configured token"}))).into_response());
+    };
     let header_token = headers.get("x-minerdesk-token").and_then(|v| v.to_str().ok());
     let bearer = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "));
     if header_token == Some(expected) || bearer == Some(expected) { Ok(()) }
@@ -3274,9 +3311,10 @@ async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Re
             #[cfg(not(target_os = "linux"))]
             { false }
         },
-        version: "0.7.39",
+        version: env!("CARGO_PKG_VERSION"),
         headless: s.headless,
         desktop_owned: s.desktop_owned,
+        fleet_enabled: s.core.fleet_enabled.load(Ordering::SeqCst),
         miner_crash_guard: {
             #[cfg(target_os = "windows")]
             { windows_miner_job::is_ready() }
@@ -3533,6 +3571,17 @@ async fn api_backend_shutdown(AxumState(s): AxumState<WebState>, headers: Header
         return Json(json!({"ok":true,"ignored":true,"reason":"standalone headless backend"})).into_response();
     }
 
+    // Closing a Fleet UI is a detach, not a shutdown of its autonomous agent.
+    // Maintenance/update and the explicit Quit action retain a real shutdown.
+    if headers.get("x-minerdesk-desktop-detach").and_then(|v|v.to_str().ok()) == Some("1")
+        && s.core.fleet_enabled.load(Ordering::SeqCst)
+    {
+        if let Some(pid) = desktop_pid_from_headers(&headers) {
+            if let Ok(mut leases) = s.desktop_leases.lock() { leases.clients.remove(&pid); }
+        }
+        return Json(json!({"ok":true,"ignored":true,"reason":"Fleet agent remains active"})).into_response();
+    }
+
     // 0.7.5 identifies Desktop instances by PID. This avoids one Desktop instance
     // tearing down a managed backend while another Desktop window is still alive.
     if let Some(pid) = desktop_pid_from_headers(&headers) {
@@ -3628,6 +3677,7 @@ fn start_desktop_heartbeat_watchdog(core: Arc<CoreState>, leases: Arc<Mutex<Desk
 
     thread::spawn(move || loop {
         thread::sleep(WATCH_INTERVAL);
+        if core.fleet_enabled.load(Ordering::SeqCst) { continue; }
         let now = Instant::now();
         let stale_pids: Vec<u32> = match leases.lock() {
             Ok(state) => {
@@ -3728,11 +3778,26 @@ async fn serve_web(core: Arc<CoreState>, listen: String, port: u16, token: Optio
 async fn serve_bound_web(core: Arc<CoreState>, listener: tokio::net::TcpListener, token: Option<String>, headless: bool, desktop_owned: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     core.start_windows_config_sync();
+    let fleet = match fleet::FleetManager::new(core.config_path.clone(), Arc::new(fleet::core::CoreBridge::new(Arc::clone(&core)))) {
+        Ok(manager) => {
+            if let Err(error) = manager.start().await {
+                backend_diagnostic_log(&format!("Fleet startup: {error}"));
+            }
+            core.fleet_enabled.store(manager.enabled(), Ordering::SeqCst);
+            Some(manager)
+        }
+        Err(error) => {
+            // A damaged optional Fleet store must never trap the ordinary local
+            // mining application on its startup splash.
+            backend_diagnostic_log(&format!("Fleet configuration could not be loaded: {error}"));
+            None
+        }
+    };
     let desktop_leases = Arc::new(Mutex::new(DesktopLeaseState::default()));
     if headless && desktop_owned {
         start_desktop_heartbeat_watchdog(Arc::clone(&core), Arc::clone(&desktop_leases));
     }
-    let state = WebState { core, token, headless, desktop_owned, desktop_leases };
+    let state = WebState { core, fleet, token, headless, desktop_owned, desktop_leases };
     let app = Router::new()
         .route("/api/health", get(api_health))
         .route("/api/updates", get(api_app_update))
@@ -3760,6 +3825,7 @@ async fn serve_bound_web(core: Arc<CoreState>, listener: tokio::net::TcpListener
         .route("/api/security/defender", post(api_security_defender))
         .route("/api/backend/shutdown", post(api_backend_shutdown))
         .route("/api/backend/desktop-heartbeat", post(api_backend_desktop_heartbeat))
+        .merge(fleet_api::routes())
         .fallback(static_handler)
         .layer(middleware::from_fn(mark_local_request))
         .layer(CorsLayer::permissive())
@@ -3857,7 +3923,6 @@ fn focus_main_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(target_os = "windows")]
 fn show_main_window(app: &tauri::AppHandle) {
     let _ = focus_main_window(app.clone());
 }
@@ -4045,14 +4110,15 @@ fn configure_windows_tray(app: &mut tauri::App, cfg: &AppConfig) -> tauri::Resul
     let open_item = MenuItem::with_id(app, "open-minerdesk", open_label, true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit-minerdesk", quit_label, true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&summary_item, &detail_item, &stats_item, &open_item, &quit_item])?;
+    let port = cfg.web.desktop_api_port;
     let tray = TrayIconBuilder::with_id("minerdesk-tray")
         .icon(tauri::include_image!("./icons/32x32.png"))
         .tooltip("MinerDesk")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id().as_ref() {
+        .on_menu_event(move |app, event| match event.id().as_ref() {
             "open-minerdesk" => show_main_window(app),
-            "quit-minerdesk" => app.exit(0),
+            "quit-minerdesk" => { let _ = request_backend_shutdown(port); app.exit(0); },
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -4063,7 +4129,6 @@ fn configure_windows_tray(app: &mut tauri::App, cfg: &AppConfig) -> tauri::Resul
         .build(app)?;
     tray.set_visible(cfg.ui.close_to_tray)?;
 
-    let port = cfg.web.desktop_api_port;
     let summary_for_thread = summary_item.clone();
     let detail_for_thread = detail_item.clone();
     let stats_for_thread = stats_item.clone();
@@ -4078,7 +4143,23 @@ fn configure_windows_tray(app: &mut tauri::App, cfg: &AppConfig) -> tauri::Resul
 }
 
 #[cfg(not(target_os = "windows"))]
-fn configure_windows_tray(_app: &mut tauri::App, _cfg: &AppConfig) -> tauri::Result<()> { Ok(()) }
+fn configure_windows_tray(app: &mut tauri::App, cfg: &AppConfig) -> tauri::Result<()> {
+    let french = cfg.ui.language == "fr";
+    let open = MenuItem::with_id(app,"open-minerdesk",if french {"Ouvrir MinerDesk"} else {"Open MinerDesk"},true,None::<&str>)?;
+    let quit = MenuItem::with_id(app,"quit-minerdesk",if french {"Quitter MinerDesk et arrêter ce rig"} else {"Quit MinerDesk and stop this rig"},true,None::<&str>)?;
+    let menu = Menu::with_items(app,&[&open,&quit])?;
+    TrayIconBuilder::with_id("minerdesk-tray")
+        .icon(tauri::include_image!("./icons/32x32.png"))
+        .tooltip("MinerDesk Fleet")
+        .menu(&menu)
+        .on_menu_event(|app,event| match event.id().as_ref() {
+            "open-minerdesk" => show_main_window(app),
+            "quit-minerdesk" => app.exit(0),
+            _ => {}
+        })
+        .build(app)?;
+    Ok(())
+}
 
 // ---------- Windows security ----------
 
@@ -4191,6 +4272,10 @@ fn get_system_info() -> Value { json!({"os":std::env::consts::OS,"arch":std::env
 // ---------- Tauri desktop ----------
 
 fn request_backend_shutdown(port: u16) -> Result<(), String> {
+    request_backend_shutdown_mode(port, false)
+}
+
+fn request_backend_shutdown_mode(port: u16, detach: bool) -> Result<(), String> {
     let addr = format!("127.0.0.1:{port}");
     let socket_addr: SocketAddr = addr.parse().map_err(|e| format!("invalid backend address: {e}"))?;
     let mut stream = TcpStream::connect_timeout(
@@ -4198,8 +4283,9 @@ fn request_backend_shutdown(port: u16) -> Result<(), String> {
         Duration::from_millis(800),
     ).map_err(|e| format!("connect backend for shutdown: {e}"))?;
     let desktop_pid = std::process::id();
+    let detach_header = if detach { "X-MinerDesk-Desktop-Detach: 1\r\n" } else { "" };
     let request = format!(
-        "POST /api/backend/shutdown HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-MinerDesk-Desktop-Pid: {desktop_pid}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+        "POST /api/backend/shutdown HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-MinerDesk-Desktop-Pid: {desktop_pid}\r\n{detach_header}Connection: close\r\nContent-Length: 0\r\n\r\n"
     );
     stream.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
     let _ = stream.flush();
@@ -4268,10 +4354,15 @@ fn shutdown_backend_for_desktop_exit(port: u16) {
     backend_diagnostic_log(&format!(
         "Desktop is exiting; requesting minerdesk-headless shutdown on port {port}"
     ));
-    if let Err(e) = request_backend_shutdown(port) {
+    if let Err(e) = request_backend_shutdown_mode(port, true) {
         // A connection failure usually means the backend is already stopped. Keep
         // the exit path best-effort and never prevent the Desktop from closing.
         backend_diagnostic_log(&format!("Desktop backend shutdown request: {e}"));
+        return;
+    }
+
+    if tray_backend_json(port,"/api/health").and_then(|v|v.get("fleet_enabled").and_then(Value::as_bool)) == Some(true) {
+        backend_diagnostic_log("Desktop detached; autonomous Fleet backend remains active");
         return;
     }
 
@@ -4661,6 +4752,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() != "main" { return; }
             #[cfg(target_os = "windows")]
             {
                 if window.label() != "main" { return; }
@@ -4672,7 +4764,13 @@ pub fn run() {
                 }
             }
             #[cfg(not(target_os = "windows"))]
-            let _ = (window, event);
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let state = window.state::<Arc<CoreState>>();
+                if state.fleet_enabled.load(Ordering::SeqCst) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .build(tauri::generate_context!())
         .expect("error while building MinerDesk");
@@ -4699,8 +4797,11 @@ pub fn run() {
 // ---------- Headless CLI ----------
 
 #[derive(Parser, Debug)]
-#[command(name = "minerdesk-headless", version = "0.7.39", about = "MinerDesk headless miner orchestrator with web dashboard")]
+#[command(name = "minerdesk-headless", version, about = "MinerDesk headless miner orchestrator with web dashboard")]
 struct HeadlessArgs {
+    /// Explicit configuration file for an independent headless instance.
+    #[arg(long)]
+    config: Option<PathBuf>,
     /// Listen interface. 127.0.0.1 = local only, 0.0.0.0 = LAN.
     #[arg(long)]
     listen: Option<String>,
@@ -4738,11 +4839,12 @@ fn run_backend(windowless: bool) {
     };
     let desktop_owned = windowless || args.desktop_owned;
     backend_diagnostic_log(&format!(
-        "{} 0.7.39 starting ({})",
+        "{} {} starting ({})",
         if windowless { "minerdesk-backend / windowless" } else { "minerdesk-headless" },
+        env!("CARGO_PKG_VERSION"),
         if desktop_owned { "desktop-owned" } else { "standalone CLI" }
     ));
-    let core = match CoreState::load() {
+    let core = match args.config.map(CoreState::load_from_path).unwrap_or_else(CoreState::load) {
         Ok(core) => core,
         Err(e) => {
             backend_diagnostic_log(&format!("configuration error: {e}"));
@@ -4769,7 +4871,7 @@ fn run_backend(windowless: bool) {
     start_scheduler(Arc::clone(&core));
     start_dev_tip_monitor(Arc::clone(&core));
     if !windowless {
-        println!("MinerDesk Headless 0.7.39");
+        println!("MinerDesk Headless {}",env!("CARGO_PKG_VERSION"));
         println!("Mode: {}", if desktop_owned { "Desktop-managed backend" } else { "standalone headless (Desktop watchdog disabled)" });
         #[cfg(target_os = "windows")]
         println!("Miner crash guard: Windows Job Object (kill-on-close)");

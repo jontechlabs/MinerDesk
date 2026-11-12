@@ -30,6 +30,8 @@ jobs:
         run: .\scripts\build-windows.ps1
       - name: Rust library tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+      - name: Fleet integration with three isolated loopback backends
+        run: python tests/fleet-backend.py --backend publish/windows-x64/minerdesk-headless.exe
       - name: Exercise Tauri signing callbacks without a certificate (test outputs remain unsigned)
         shell: powershell
         run: .\tests\verify-signing-callback.ps1
@@ -79,6 +81,8 @@ jobs:
         run: |
           sudo -n python3 tests/linux-elevation-processes.py --helper publish/linux-x64/minerdesk-linux-helper
           sudo -n python3 tests/linux-elevation-backend.py --backend publish/linux-x64/minerdesk-headless
+      - name: Fleet integration with three isolated loopback backends
+        run: python3 tests/fleet-backend.py --backend publish/linux-x64/minerdesk-headless
       - name: Test root approval boundaries with disposable fixtures only
         run: |
           cargo test --locked --manifest-path src-tauri/linux-helper/Cargo.toml --no-run --message-format=json > /tmp/minerdesk-helper-tests.jsonl

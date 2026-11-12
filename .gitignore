@@ -13,6 +13,7 @@ Thumbs.db
 !.env.example
 config.json
 scheduler-manual-stops.json
+fleet-private/
 miners/
 *.pem
 *.key

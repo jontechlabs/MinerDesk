@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.0
+
+- Add opt-in MinerDesk Fleet: one coordinator and outbound HTTPS agents for Windows/Linux rigs, with a shared dashboard accessible from any paired instance. Fleet is off by default.
+- Pair through temporary single-use invitations carrying a pinned coordinator certificate; keep separate agent/controller credentials in protected local Fleet storage. Add optional LAN discovery without granting trust or opening router ports automatically.
+- Add timestamped rig status, filtered recent logs, command receipts, expiry and a persistent execution journal. Keep local mining and schedules independent of coordinator availability while the rig backend remains running.
+- Route remote Start/Restart/Resume through the existing schedule policy; reserve unlimited mining for explicit Force. Reject commands that expire while waiting for local execution and avoid automatically replaying ambiguous outcomes.
+- Allow revision-checked edits to stopped profiles and local-time schedule windows. Preserve executable paths, engine selection, Advanced arguments, pool passwords, local power controls, web settings and root grants. Keep root enrollment local and remote launches noninteractive.
+- Keep public payout identifiers in the trusted controller configuration view, omit sensitive fields from periodic telemetry, and filter command/credential/path-bearing logs. All paired instances are trusted controllers; this version has no granular per-user roles.
+- With Fleet enabled, Windows window-close detaches the desktop while its backend continues; Linux window-close hides the application with tray access. Explicit Quit still stops the desktop-owned backend and its miners. No automatic operating-system boot service is installed.
+- Document HTTPS/VPN reachability, private backup/recovery and first-version limits. Initial local checks passed 116 Rust tests on Linux and 9 UI tests; final package and Windows CI validation must precede release publication. No live GPU benchmark is claimed.
+
 ## 0.7.39
 
 - Add PeakMiner to profiles, dashboard filters and official Windows/Linux downloads, with SHA256 verification before extraction.

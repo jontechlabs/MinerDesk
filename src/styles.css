@@ -95,3 +95,12 @@ select:focus-visible { outline: 2px solid #67ed9c; outline-offset: 2px; }
 .root-authorization-review{margin-top:14px;padding:14px;border:1px solid #69532d;border-radius:10px;background:#191b1c}
 .root-authorization-review .command-preview{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;line-height:1.6;background:#0b1017;border:1px solid #283447;border-radius:8px;padding:10px}
 .root-authorization-review button{margin:4px 8px 0 0}
+
+/* Fleet can also be used from a narrow browser while local editor screens keep
+   their existing desktop layout. The shared shell must not force a 900px body. */
+body:has(.fleet-shell){min-width:320px}
+.fleet-shell{grid-template-columns:218px minmax(0,1fr)}
+.fleet-shell>main{min-width:0}
+.fleet-shell .fleet-key{max-height:150px;overflow:auto}
+@media(max-width:900px){.fleet-shell{grid-template-columns:168px minmax(0,1fr)}.fleet-shell>.sidebar{padding:18px 9px}.fleet-shell .brand{gap:8px;padding-left:4px;padding-right:4px}.fleet-shell .brand strong{font-size:14px}.fleet-shell .brand span{font-size:10px}.fleet-shell .sidebar-foot{padding-left:4px;padding-right:4px}}
+@media(max-width:760px){.fleet-shell{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);height:100vh;height:100dvh}.fleet-shell>.sidebar{padding:12px;border-right:0;border-bottom:1px solid #202633}.fleet-shell .brand{padding-bottom:11px}.fleet-shell .brand-mark{width:30px;height:30px}.fleet-shell .sidebar-foot{display:none}.fleet-shell>.sidebar nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}.fleet-shell>.sidebar nav button{font-size:12px;padding:8px 7px;gap:7px;min-width:0}.fleet-shell .topbar{padding:15px 16px;min-height:76px}.fleet-shell .topbar h1{font-size:19px}}

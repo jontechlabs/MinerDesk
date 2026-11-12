@@ -1,6 +1,6 @@
 # HTTP API overview
 
-The Axum backend serves the embedded frontend and JSON API on port 17888 by default. Loopback is trusted; remote calls require `X-MinerDesk-Token: YOUR_TOKEN` or `Authorization: Bearer YOUR_TOKEN`. See [SECURITY.md](../SECURITY.md) before enabling LAN access.
+The Axum backend serves the embedded frontend and JSON API on port 17888 by default. Same-machine calls are trusted only from the local MinerDesk browser/Tauri origins or non-browser clients without an Origin header. Remote calls require a configured `X-MinerDesk-Token: YOUR_TOKEN` or `Authorization: Bearer YOUR_TOKEN`; no token never means anonymous remote access. See [SECURITY.md](../SECURITY.md) before enabling LAN access.
 
 | Method | Route | Purpose |
 | --- | --- | --- |
@@ -22,6 +22,27 @@ The Axum backend serves the embedded frontend and JSON API on port 17888 by defa
 | POST | `/api/security/firewall`, `/api/security/defender` | Optional privileged integrations |
 | POST | `/api/backend/shutdown` | Backend shutdown, subject to ownership checks |
 | POST | `/api/backend/desktop-heartbeat` | Desktop ownership/lease integration |
+
+## Fleet local interface
+
+The [Fleet guide](FLEET.md) describes pairing and trust. These routes belong to the existing local UI/API. Creation, pairing, invitations, disconnection and revocation require an approved same-machine origin; authenticated remote web views can inspect and operate an already paired fleet. Browser origin checks also apply to ordinary local mining endpoints.
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/api/fleet` | Setup, validated rig snapshots/configurations, and recent command receipts |
+| POST | `/api/fleet/create`, `/disable` | Start/remove the optional HTTPS coordinator |
+| POST | `/api/fleet/invite`, `/join`, `/leave` | Temporary invitation, verified TLS pairing, self-revoking disconnection |
+| POST | `/api/fleet/discover` | Explicit UDP LAN discovery; hints do not authorize pairing |
+| GET | `/api/fleet/rigs/:id`, `/api/fleet/rigs/:id/config` | Last confirmed rig data |
+| POST | `/api/fleet/commands` | Typed commands with target IDs and expiry; inspect each receipt |
+| GET | `/api/fleet/commands/:id` | Command result; a timeout is not proof of failure |
+| POST | `/api/fleet/rigs/:id/revoke` | Revoke a rig's credentials on the coordinator |
+
+`src-tauri/src/fleet/protocol.rs` defines the versioned command contract. Profile edits carry a profile revision; schedule edits carry a configuration revision. Paths, arbitrary arguments, passwords, system security and root enrollment are outside the Fleet command allowlist. The separate HTTPS machine protocol (normally 17889) authenticates agent and controller credentials separately, rejects browser-origin traffic and never forwards requests to the localhost API. Do not expose plain HTTP port 17888 to the public Internet.
+
+The headless CLI supports `--config /absolute/path/to/instance/config.json` for an explicit configuration. Give independent instances separate configuration directories; Fleet identities and scheduler state are stored beside that file.
+
+## Existing local controls
 
 `:id` is the URL-encoded profile identifier; abbreviated `/stop` and `/restart` use the same `/api/miners/:id` prefix. The Rust types in `src-tauri/src/lib.rs` and UI types in `src/types.ts` define request/response fields.
 
