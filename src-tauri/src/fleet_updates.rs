@@ -61,11 +61,15 @@ struct State {
     job: Option<UpdateJob>,
     reconnected_job: Option<String>,
 }
+type DesktopExit = Arc<dyn Fn() + Send + Sync>;
+
 pub struct FleetUpdates {
     policy_path: PathBuf,
     job_path: PathBuf,
     state: Mutex<State>,
-    app: Mutex<Option<tauri::AppHandle>>,
+    // Keep the autonomous/headless service independent of Wry's destructor.
+    // Only a desktop attachment captures an AppHandle behind this callback.
+    desktop_exit: Mutex<Option<DesktopExit>>,
     eligibility: Mutex<(Result<&'static str, String>, bool, bool)>,
     enrollment: Mutex<()>,
     policy_transition: Mutex<()>,
@@ -227,7 +231,7 @@ impl FleetUpdates {
                 job,
                 reconnected_job,
             }),
-            app: Mutex::new(None),
+            desktop_exit: Mutex::new(None),
             eligibility: Mutex::new(platform_status()),
             enrollment: Mutex::new(()),
             policy_transition: Mutex::new(()),
@@ -235,8 +239,23 @@ impl FleetUpdates {
     }
 
     pub fn attach_app(&self, app: tauri::AppHandle) {
-        if let Ok(mut current) = self.app.lock() {
-            *current = Some(app);
+        self.set_desktop_exit(Arc::new(move || app.exit(0)));
+    }
+
+    fn set_desktop_exit(&self, exit: DesktopExit) {
+        if let Ok(mut current) = self.desktop_exit.lock() {
+            *current = Some(exit);
+        }
+    }
+
+    fn request_desktop_exit(&self) -> bool {
+        let exit = self.desktop_exit.lock().ok().and_then(|exit| exit.clone());
+        if let Some(exit) = exit {
+            // App exit may reenter application state; release the lock first.
+            exit();
+            true
+        } else {
+            false
         }
     }
 
@@ -608,9 +627,7 @@ impl FleetUpdates {
         // Remove our download before a headless process::exit skips destructors.
         drop(input);
         drop(directory);
-        if let Some(app) = self.app.lock().ok().and_then(|app| app.clone()) {
-            app.exit(0);
-        } else {
+        if !self.request_desktop_exit() {
             std::process::exit(0);
         }
         Ok(())
@@ -851,6 +868,24 @@ async fn fetch_offer() -> Result<Option<Offer>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn desktop_exit_callback_runs_without_holding_the_service_lock() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let directory = tempfile::tempdir().unwrap();
+        let service = FleetUpdates::new(&directory.path().join("config.json"));
+        assert!(!service.request_desktop_exit());
+        let weak = Arc::downgrade(&service);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let callback_calls = Arc::clone(&calls);
+        service.set_desktop_exit(Arc::new(move || {
+            let service = weak.upgrade().unwrap();
+            assert!(service.desktop_exit.try_lock().is_ok());
+            callback_calls.fetch_add(1, Ordering::SeqCst);
+        }));
+        assert!(service.request_desktop_exit());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
     #[test]
     fn local_policy_is_off_and_independent_of_remote_config() {
         let directory = tempfile::tempdir().unwrap();
