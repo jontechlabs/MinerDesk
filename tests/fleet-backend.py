@@ -72,7 +72,7 @@ class Rig:
             "schedules": [], "web": {"desktop_api_port": self.port, "expose_lan": False,
                                       "token": "private-fixture-web-token"},
             "ui": {"language": "en"}
-        }))
+        }), encoding="utf-8")
         self.process = None
         self.log = None
 
@@ -99,7 +99,7 @@ class Rig:
         return call(self.url, "/api/fleet")
 
     def private(self):
-        return json.loads(self.private_file.read_text())
+        return json.loads(self.private_file.read_text(encoding="utf-8"))
 
 
 def main():
@@ -186,7 +186,9 @@ def main():
             result = operation({"action": "profile_patch", "profile_id": "fixture", "expected_revision": revision,
                                 "patch": {"name": "Edited remotely — fixture"}})
             assert result["state"] == "succeeded", result
-            actual = json.loads(b.config_file.read_text())
+            # Rust writes UTF-8 JSON on every OS; do not use Windows' locale
+            # encoding when checking names containing non-ASCII characters.
+            actual = json.loads(b.config_file.read_text(encoding="utf-8"))
             assert actual["miners"][0]["name"] == "Edited remotely — fixture"
             assert actual["miners"][0]["password"] == "private-fixture-pool-password"
             checks.append("A typed remote edit reaches the other real process and preserves hidden settings")
@@ -198,7 +200,7 @@ def main():
             result = operation({"action": "profile_patch", "profile_id": "fixture", "expected_revision": latest["profiles"][0]["revision"],
                                 "patch": {"executable_path": "/bin/sh", "extra_args": "unapproved"}})
             assert result["state"] == "failed", result
-            assert json.loads(b.config_file.read_text())["miners"][0]["executable_path"] == "/never-exists/fleet-fixture-miner"
+            assert json.loads(b.config_file.read_text(encoding="utf-8"))["miners"][0]["executable_path"] == "/never-exists/fleet-fixture-miner"
             checks.append("Conflicting revisions and remote executable/argument changes are rejected")
 
             result = operation({"action": "start", "profile_id": "fixture"})
