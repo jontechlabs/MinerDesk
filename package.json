@@ -18,7 +18,11 @@
     "test:mining-controls": "node --test tests/miner-controls.test.cjs",
     "test:fleet": "node --test tests/fleet-ui.test.cjs",
     "build:linux": "bash scripts/build-linux.sh",
-    "test": "npm run test:mining-controls && node --test tests/platform-config.test.cjs tests/dev-tip.test.cjs tests/windows-signing.test.cjs tests/app-updates.test.cjs tests/gpu-discovery.test.cjs tests/gpu-diagnostic.test.cjs tests/backend-panel.test.cjs tests/gpu-tuning.test.cjs tests/linux-elevation.test.cjs tests/miner-schedule-controls.test.cjs tests/app-startup.test.cjs tests/fleet-ui.test.cjs"
+    "test": "npm run test:mining-controls && node --test tests/platform-config.test.cjs tests/dev-tip.test.cjs tests/windows-signing.test.cjs tests/app-updates.test.cjs tests/gpu-discovery.test.cjs tests/gpu-diagnostic.test.cjs tests/backend-panel.test.cjs tests/gpu-tuning.test.cjs tests/linux-elevation.test.cjs tests/miner-schedule-controls.test.cjs tests/app-startup.test.cjs tests/fleet-ui.test.cjs tests/mobile-client.test.cjs",
+    "mobile:dev": "npm --prefix apps/mobile run dev",
+    "mobile:build": "npm --prefix apps/mobile run build",
+    "mobile:android": "npm --prefix apps/mobile run android:build",
+    "mobile:ios": "npm --prefix apps/mobile run ios:build"
   },
   "dependencies": {
     "@tauri-apps/api": "~2.12.1",

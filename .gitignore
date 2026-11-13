@@ -31,3 +31,7 @@ wallet-backups/
 *wallet-password*
 *encrypted-wallet*
 RECOVERY-PRIVATE*
+apps/mobile/dist/
+apps/mobile/src-tauri/gen/
+apps/mobile/src-tauri/target/
+apps/mobile/core/target/
