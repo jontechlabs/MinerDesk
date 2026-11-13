@@ -107,6 +107,13 @@ export default function App({ mobileConnectionId = "" }: { mobileConnectionId?: 
   const sessionId = useRef(mobileConnectionId).current;
   const api = useMemo(() => isMobileClient ? createMobileApi(sessionId) : desktopApi, [sessionId]);
   const [tab, setTab] = useState<Tab>("dashboard");
+  const mainScroll = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (mainScroll.current) {
+      mainScroll.current.scrollTop = 0;
+      mainScroll.current.scrollLeft = 0;
+    }
+  }, [tab]);
   const [token, setToken] = useState(queryToken());
   const [mobileLanguage, setMobileLanguage] = useState(localStorage.getItem("minerdesk.language") || "en");
   const [health, setHealth] = useState<Health | null>(null);
@@ -678,7 +685,7 @@ export default function App({ mobileConnectionId = "" }: { mobileConnectionId?: 
       <nav aria-label={language === "fr" ? "Navigation principale" : "Main navigation"}>{(["dashboard","fleet","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} aria-label={x==="fleet"?"Fleet":t(x)} aria-current={tab===x?"page":undefined} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot" aria-hidden="true"/><span className="nav-label">{isMobileClient ? ({ dashboard: language === "fr" ? "Accueil" : "Overview", fleet: "Fleet", miners: language === "fr" ? "Mineurs" : "Miners", schedules: language === "fr" ? "Planning" : "Schedule", console: "Console", settings: language === "fr" ? "Réglages" : "Settings" }[x]) : x==="fleet"?"Fleet":t(x)}</span></button>)}</nav>
       <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {tab==="fleet"?(language==="fr"?"MINEURS LOCAUX":"LOCAL MINERS"):t("activeMiners").toUpperCase()}</div><div className={`status-pill ${localBackendOnline?"on":"off"}`}><span/>{localBackendOnline?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{isMobileClient ? "REMOTE CLIENT" : health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>
-    <main className={tab==="console"?"console-main":""}>
+    <main ref={mainScroll} className={tab==="console"?"console-main":""}>
       <header className="topbar"><div><h1>{title}</h1><p>{tab==="fleet"?(language==="fr"?"Vos machines, un seul espace de pilotage.":"Your rigs, one place to manage them."):statusText}{dirty?` · ${t("unsaved")}`:""}</p></div>{tab!=="fleet"&&<div className="top-actions">{dirty&&<button className="btn primary" onClick={()=>saveConfig()} disabled={busy}>{t("save")}</button>}<button className="btn ghost" onClick={()=>allAction("start-all")} title={t("startAllScheduleHelp")} disabled={busy||!health||(isMobileClient&&!localApiOnline)}>{t("startAll")}</button><button className="btn danger" onClick={()=>allAction("stop-all")} disabled={busy||!health||(isMobileClient&&!localApiOnline)}>{t("stopAll")}</button></div>}</header>
       {!isMobileClient&&<AppUpdates desktop={isTauri} language={language} settings={tab === "settings"} dirty={dirty} busy={busy || backendBusy || Boolean(pendingPower)} onInstalling={setAppUpdating} checkWeb={(force) => api<AppUpdate>(`/api/updates?force=${force}`, {}, token, 25000)}/>}
 
