@@ -383,25 +383,25 @@ export default function Fleet({ language, request, localName }: FleetProps) {
             <div className="fleet-kpi"><div className="fleet-kpi-label">{t("Shares A/R", "Shares A/R")}</div><div className="fleet-kpi-value">{detailSummary!.accepted === null ? "—" : `${detailSummary!.accepted} / ${detailSummary!.rejected}`}</div></div>
           </div>
           <div className="fleet-section-head"><h3>{t("Tableau de bord des mineurs", "Miner dashboard")}</h3><small>{t("Actualisation automatique toutes les 5 s · derniers états reçus", "Refreshes automatically every 5s · latest agent snapshots")}</small></div>
-          {detail.snapshot?.status.length ? <div className="fleet-table-wrap fleet-miner-table-wrap" role="region" aria-label={t("Mesures et commandes des mineurs", "Miner readings and controls")} tabIndex={0}><table className="fleet-table fleet-miner-table" aria-label={t("Tableau de bord des mineurs", "Miner dashboard")}>
-            <thead><tr><th>{t("Profil", "Profile")}</th><th>{t("Moteur", "Engine")}</th><th>{t("Algo / GPU", "Algo / GPU")}</th><th>{t("État", "State")}</th><th>{t("Débit", "Hashrate")}</th><th>W</th><th>°C</th><th>{t("Ventilateur %", "Fan %")}</th><th>A/R</th><th>{t("Durée", "Uptime")}</th><th>{t("Actions", "Actions")}</th></tr></thead>
-            <tbody>{detail.snapshot.status.map(miner => {
+          {detail.snapshot?.status.length ? <div className="fleet-table-wrap fleet-miner-table-wrap" role="region" aria-label={t("Mesures et commandes des mineurs", "Miner readings and controls")} tabIndex={0}><table role="table" className="fleet-table fleet-miner-table" aria-label={t("Tableau de bord des mineurs", "Miner dashboard")}>
+            <thead role="rowgroup"><tr role="row"><th role="columnheader">{t("Profil", "Profile")}</th><th role="columnheader">{t("Moteur", "Engine")}</th><th role="columnheader">{t("Algo / GPU", "Algo / GPU")}</th><th role="columnheader">{t("État", "State")}</th><th role="columnheader">{t("Débit", "Hashrate")}</th><th role="columnheader">W</th><th role="columnheader">°C</th><th role="columnheader">{t("Ventilateur %", "Fan %")}</th><th role="columnheader">A/R</th><th role="columnheader">{t("Durée", "Uptime")}</th><th role="columnheader">{t("Actions", "Actions")}</th></tr></thead>
+            <tbody role="rowgroup">{detail.snapshot.status.map(miner => {
               const current = fresh(detail), profile = detail.config?.profiles.find(p => p.id === miner.id);
-              return <tr key={miner.id}>
-                <td><strong>{miner.name}</strong>{profile?.pool && <small>{profile.pool}</small>}{miner.last_error && <small className="fleet-profile-error">{miner.last_error}</small>}</td>
-                <td>{miner.engine}</td><td>{miner.algorithm || "—"}<small>GPU {miner.gpu_ids || t("Tous", "All")}</small></td>
-                <td><Badge kind={current && miner.running ? "good" : current ? "" : "warning"}>{current ? !miner.enabled && !miner.running ? t("Désactivé", "Disabled") : mode(miner, t) : t("Dernier état reçu", "Last reported state")}</Badge>
+              return <tr role="row" key={miner.id}>
+                <td role="cell" data-label={t("Profil", "Profile")}><strong>{miner.name}</strong>{profile?.pool && <small>{profile.pool}</small>}{miner.last_error && <small className="fleet-profile-error">{miner.last_error}</small>}</td>
+                <td role="cell" data-label={t("Moteur", "Engine")}>{miner.engine}</td><td role="cell" data-label={t("Algorithme / GPU", "Algorithm / GPU")}>{miner.algorithm || "—"}<small>GPU {miner.gpu_ids || t("Tous", "All")}</small></td>
+                <td role="cell" data-label={t("État", "State")}><Badge kind={current && miner.running ? "good" : current ? "" : "warning"}>{current ? !miner.enabled && !miner.running ? t("Désactivé", "Disabled") : mode(miner, t) : t("Dernier état reçu", "Last reported state")}</Badge>
                   {current && miner.running && !miner.enabled && <small>{t("Profil désactivé", "Profile disabled")}</small>}
                   {current && miner.has_schedule && <small>{miner.scheduler_paused ? t("Planning en pause", "Schedule paused") : miner.scheduled_now ? t("Dans le créneau planifié", "Within schedule") : t("Hors créneau planifié", "Outside schedule")}</small>}
                   {current && miner.dev_tip_active && <small className="fleet-dev-tip">♥ {t("Soutien développeur actif", "Developer tip active")}</small>}
                   <small>{authText(miner.root_authorization, t)}</small></td>
-                <td>{current ? fleetHashrate(miner.metrics.hashrate_hps) : "—"}</td>
-                <td>{current && miner.metrics.power_w !== null ? miner.metrics.power_w.toFixed(0) : "—"}</td>
-                <td>{current && miner.metrics.temperature_c !== null ? miner.metrics.temperature_c.toFixed(0) : "—"}</td>
-                <td>{current && miner.metrics.fan_pct !== null ? miner.metrics.fan_pct.toFixed(0) : "—"}</td>
-                <td>{current ? `${miner.metrics.accepted}/${miner.metrics.rejected}` : "—"}</td>
-                <td>{fleetUptime(current ? miner.uptime_seconds : null)}</td>
-                <td className="fleet-miner-actions"><div className="fleet-actions">{profileActions(detail, miner)}<button type="button" className="fleet-btn fleet-small" disabled={busy || !canControl || !current || miner.running || !profile} onClick={() => { const before = profile!; setEditor({ rig: detail, config: detail.config!, before, draft: { ...before } }); }}>{t("Modifier", "Edit")}</button></div></td>
+                <td role="cell" data-label={t("Débit", "Hashrate")}>{current ? fleetHashrate(miner.metrics.hashrate_hps) : "—"}</td>
+                <td role="cell" data-label={t("Puissance W", "Power W")}>{current && miner.metrics.power_w !== null ? miner.metrics.power_w.toFixed(0) : "—"}</td>
+                <td role="cell" data-label={t("Température °C", "Temperature °C")}>{current && miner.metrics.temperature_c !== null ? miner.metrics.temperature_c.toFixed(0) : "—"}</td>
+                <td role="cell" data-label={t("Ventilation %", "Fan %")}>{current && miner.metrics.fan_pct !== null ? miner.metrics.fan_pct.toFixed(0) : "—"}</td>
+                <td role="cell" data-label={t("Shares A/R", "Shares A/R")}>{current ? `${miner.metrics.accepted}/${miner.metrics.rejected}` : "—"}</td>
+                <td role="cell" data-label={t("Durée", "Uptime")}>{fleetUptime(current ? miner.uptime_seconds : null)}</td>
+                <td role="cell" data-label={t("Commandes", "Controls")} className="fleet-miner-actions"><div className="fleet-actions">{profileActions(detail, miner)}<button type="button" className="fleet-btn fleet-small" disabled={busy || !canControl || !current || miner.running || !profile} onClick={() => { const before = profile!; setEditor({ rig: detail, config: detail.config!, before, draft: { ...before } }); }}>{t("Modifier", "Edit")}</button></div></td>
               </tr>;
             })}</tbody>
           </table></div> : <p>{t("Aucun état de profil reçu.", "No profile status received.")}</p>}

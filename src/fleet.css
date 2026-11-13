@@ -17,3 +17,90 @@
 @media(max-width:760px){.fleet-page{padding:22px 16px}.fleet-setup{grid-template-columns:1fr}.fleet-info-grid{grid-template-columns:1fr}.fleet-dialog-backdrop{padding:10px}.fleet-dialog-head,.fleet-dialog-body,.fleet-dialog-foot{padding:16px}.fleet-review-row{grid-template-columns:1fr;gap:7px}.fleet-editor-grid{grid-template-columns:1fr}.fleet-profile .fleet-actions{justify-content:start}.fleet-detail-head,.fleet-detail-body{padding:16px}.fleet-detail-tabs{padding-left:16px;padding-right:16px}}
 @media(max-width:540px){.fleet-grid{grid-template-columns:1fr}.fleet-kpis{gap:8px;grid-template-columns:1fr 1fr}.fleet-kpi:last-child{grid-column:1/-1}.fleet-detail-kpis .fleet-kpi:last-child{grid-column:auto}.fleet-kpi{padding:13px}.fleet-kpi-value{font-size:26px}.fleet-detail-kpis .fleet-kpi-value{font-size:21px}.fleet-heading h1{font-size:24px}.fleet-filter,.fleet-search{flex:1 1 100%}.fleet-toolbar .fleet-toggle{margin-left:auto}.fleet-rig{padding:16px}}
 @media(pointer:coarse){.fleet-btn,.fleet-toggle button{min-height:44px}.fleet-field input,.fleet-field select,.fleet-field textarea{min-height:44px;font-size:16px}.fleet-select{padding:10px}.fleet-rig-name{min-height:36px}}
+
+/* Phone layouts keep rig tables scrollable and present each miner as a card. */
+@media (max-width: 1024px) {
+  .fleet-page { padding: 20px; }
+  .fleet-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fleet-page, .fleet-detail, .fleet-detail-body, .fleet-table-wrap, .fleet-toolbar > * { min-width: 0; max-width: 100%; }
+}
+@media (max-width: 760px), (max-width: 1024px) and (max-height: 500px) and (orientation: landscape) {
+  .fleet-page { padding: 16px; }
+  .fleet-heading { margin-bottom: 18px; }
+  .fleet-heading h1 { font-size: 24px; }
+  .fleet-heading > .fleet-actions { width: 100%; }
+  .fleet-heading > .fleet-actions > button { flex: 1 1 140px; }
+  .fleet-page .fleet-btn, .fleet-toggle button { min-height: 44px; min-width: 44px; font-size: 12px; }
+  .fleet-page .fleet-field input, .fleet-page .fleet-field select, .fleet-page .fleet-field textarea { min-height: 46px; font-size: 16px; }
+  .fleet-page .fleet-select { min-width: 44px; min-height: 44px; padding: 10px; }
+  .fleet-page input[type="checkbox"] { width: 20px; height: 20px; }
+  .fleet-page .fleet-check { min-height: 44px; align-items: center; font-size: 13px; line-height: 1.6; }
+  .fleet-page .fleet-update-confirm { align-items: flex-start; }
+  .fleet-rig-name { min-height: 44px; font-size: 15px; }
+  .fleet-rig-head { align-items: center; }
+  .fleet-rig-head small, .fleet-rig-line, .fleet-rig-seen, .fleet-page small { font-size: 12px; }
+  .fleet-rig-line, .fleet-profile-info, .fleet-info-value { overflow-wrap: anywhere; }
+  .fleet-rig-metrics { gap: 12px; }
+  .fleet-rig-metrics strong { font-size: clamp(18px, 5.5vw, 24px); overflow-wrap: anywhere; }
+  .fleet-rig-foot .fleet-actions { flex: 1; justify-content: flex-end; }
+  .fleet-rig-foot .fleet-actions button { min-width: 82px; }
+  .fleet-badge { font-size: 11px; }
+  .fleet-kpi-label { font-size: 12px; }
+  .fleet-detail-head, .fleet-detail-body { padding: 16px; }
+  .fleet-detail-tabs { padding: 0 12px 12px; flex-wrap: nowrap; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+  .fleet-detail-tabs button { flex: none; }
+  .fleet-toolbar { gap: 10px; align-items: stretch; }
+  .fleet-search, .fleet-filter { flex: 1 1 100%; }
+  .fleet-toggle { justify-content: stretch; }
+  .fleet-toggle button { flex: 1; }
+  .fleet-bulk { gap: 8px; padding: 12px; }
+  .fleet-bulk > span { flex-basis: 100%; }
+  .fleet-bulk button { flex: 1 1 100px; }
+  .fleet-table-wrap { width: 100%; -webkit-overflow-scrolling: touch; overscroll-behavior-inline: contain; }
+  .fleet-profile-info { min-width: 0; flex-basis: 100%; }
+  .fleet-info-grid, .fleet-editor-grid { grid-template-columns: minmax(0, 1fr); }
+  .fleet-profile .fleet-actions { width: 100%; justify-content: flex-start; }
+  .fleet-profile .fleet-actions button { flex: 1 1 100px; }
+  .fleet-dialog-backdrop { padding: max(12px, env(safe-area-inset-top, 0px)) 0 0; align-items: flex-end; }
+  .fleet-dialog {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 12px);
+    overflow: hidden;
+    border-radius: 24px 24px 0 0;
+  }
+  .fleet-dialog-head { flex: none; padding: 18px 16px 14px; align-items: center; }
+  .fleet-dialog-head h2 { font-size: 18px; overflow-wrap: anywhere; }
+  .fleet-dialog-head button { flex: none; min-height: 44px; }
+  .fleet-dialog-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 16px; }
+  .fleet-dialog-head, .fleet-dialog-body, .fleet-dialog-foot { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .fleet-dialog-foot { flex: none; padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px)); gap: 9px; background: var(--fleet-panel); }
+  .fleet-dialog-foot button { flex: 1 1 130px; min-height: 46px; }
+  .fleet-review-row { grid-template-columns: minmax(0, 1fr); }
+  .fleet-check { overflow-wrap: anywhere; }
+  .fleet-check input { align-self: flex-start; margin-top: 3px !important; }
+  .fleet-days { gap: 7px; }
+  .fleet-days button { flex: 1; min-width: 44px; padding-inline: 5px; }
+  .fleet-setup-panel { padding: 16px; }
+  .fleet-logs { font-size: 12px; padding: 12px; }
+}
+@media (max-width: 620px) {
+  .fleet-grid { grid-template-columns: minmax(0, 1fr); }
+  .fleet-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fleet-kpi:last-child { grid-column: 1 / -1; }
+  .fleet-detail-kpis .fleet-kpi:last-child { grid-column: auto; }
+  .fleet-miner-table-wrap { border: 0; border-radius: 0; background: transparent; overflow: visible; }
+  .fleet-page .fleet-miner-table, .fleet-miner-table tbody { display: block; width: 100%; min-width: 0; }
+  .fleet-miner-table thead { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+  .fleet-miner-table tbody { display: grid; gap: 12px; }
+  .fleet-page .fleet-miner-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--fleet-line); border-radius: 14px; padding: 14px; gap: 13px 12px; background: #0e1823; }
+  .fleet-page .fleet-miner-table td, .fleet-page .fleet-miner-table td:first-child, .fleet-page .fleet-miner-table td:nth-child(4) { display: block; padding: 0; border: 0; min-width: 0; max-width: none; white-space: normal; overflow-wrap: anywhere; font-size: 14px; }
+  .fleet-miner-table td::before { content: attr(data-label); display: block; margin-bottom: 4px; color: var(--fleet-muted); font-size: 11px; line-height: 1.5; }
+  .fleet-page .fleet-miner-table td:first-child { grid-column: 1 / -1; padding-bottom: 12px; border-bottom: 1px solid var(--fleet-line); }
+  .fleet-page .fleet-miner-table td:first-child strong { font-size: 15px; }
+  .fleet-miner-table td:first-child::before, .fleet-miner-table .fleet-miner-actions::before { display: none; }
+  .fleet-page .fleet-miner-table .fleet-miner-actions { min-width: 0; grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid var(--fleet-line); }
+  .fleet-miner-actions .fleet-actions { gap: 8px; }
+  .fleet-miner-actions .fleet-actions button { flex: 1 1 100px; }
+}
