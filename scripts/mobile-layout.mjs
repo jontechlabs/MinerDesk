@@ -131,10 +131,20 @@ try {
       // stopping or changing any miner. Fixed bottom navigation must not hide it.
       await firstMiner.locator('button:enabled').first().click({trial:true});
       await stage('miner-card');
+      const scrollBeforeNavigation=await page.locator('.app-shell > main').evaluate(main=>{
+        const maximum=main.scrollHeight-main.clientHeight;
+        if(maximum>1)main.scrollTop=Math.min(300,maximum);
+        return {maximum,top:main.scrollTop};
+      });
+      assert(scrollBeforeNavigation.maximum<=1||scrollBeforeNavigation.top>0,'Scrollable dashboard must exercise the navigation regression');
       const navigation=page.getByRole('navigation',{name:'Main navigation'});
       assert.equal(await navigation.getByRole('button').count(),6);
       await navigation.getByRole('button',{name:'Fleet',exact:true}).click();
       await page.locator('.fleet-rig').first().waitFor();
+      await page.waitForFunction(()=>{
+        const main=document.querySelector('.app-shell > main');
+        return main&&main.scrollTop===0&&main.scrollLeft===0;
+      },undefined,{timeout:2000});
       assert.match(await page.locator('.fleet-kpi').first().innerText(),/2\s*\/\s*3/,'Fixture must report two confirmed rigs');
       assert.match(await page.locator('.fleet-hash-groups').innerText(),/TH\/s/,'Fixture must show confirmed hashrate');
       await stage('fleet');
