@@ -84,8 +84,9 @@ try {
         }
         if(command==='mobile_disconnect'){connected=false;return;}
         if(command!=='mobile_request'||!connected||args.connectionId!==session.connectionId)throw Error('Unexpected native operation in test fixture');
-        if(args.method!=='GET')throw Error('The layout fixture never mutates a miner');
         const path=args.path.split('?')[0];
+        if(args.method==='POST'&&path==='/api/gpus/discover')return {engine:'srbminer',platform:'windows',source:'TEST DATA',selectors_verified:true,devices:[{selector:'0',name:'NVIDIA GeForce RTX 5060 Ti',vendor:'NVIDIA',pci_bus:'0000:01:00.0'}],raw_excerpt:'TEST DATA · synthetic GPU listing',selection_hint:'TEST DATA · verified engine selector'};
+        if(args.method!=='GET')throw Error('The layout fixture never mutates a miner');
         const responses={'/api/health':fixture.health,'/api/config':fixture.config,'/api/engines':fixture.engines,'/api/status':fixture.statuses,'/api/fleet':fixture.fleet};
         if(path.endsWith('/logs'))return [{ts:1,stream:'stdout',text:'TEST DATA · synthetic miner output'}];
         if(!(path in responses))throw Error('Unimplemented fixture request: '+path);
@@ -153,6 +154,17 @@ try {
       await page.locator('.fleet-detail').scrollIntoViewIfNeeded();
       await stage('rig-details');
       await page.getByRole('button',{name:'Close details',exact:true}).click();
+      for(const [index,name,selector] of [[2,'miners','.miner-editor'],[3,'schedules','.schedule-grid'],[4,'console','.console-page'],[5,'settings','.engine-grid']]){
+        await navigation.getByRole('button').nth(index).click();
+        await page.locator(selector).waitFor();
+        if(name==='miners')await page.locator('.gpu-choice:not(.all)').waitFor();
+        if(name==='console')await page.getByText('TEST DATA · synthetic miner output',{exact:false}).waitFor();
+        await stage(name);
+        if(name==='miners'){
+          await page.locator('.per-gpu-box').scrollIntoViewIfNeeded();
+          await stage('gpu-tuning');
+        }
+      }
       await page.getByRole('button',{name:'Connections',exact:true}).click();
       const dialog=page.getByRole('dialog',{name:'Change connection?'});await dialog.waitFor();
       await page.keyboard.press('Tab');
@@ -162,7 +174,7 @@ try {
       const storage=await page.evaluate(()=>JSON.stringify(localStorage));
       assert(!storage.includes('fixture-key-never-use'),'Access key persisted in WebView storage');
       const calls=await page.evaluate(()=>window.__fixtureCalls);
-      assert(calls.every(call=>call.command!=='mobile_request'||call.method==='GET'),'Unexpected server mutation');
+      assert(calls.every(call=>call.command!=='mobile_request'||call.method==='GET'||(call.method==='POST'&&call.path==='/api/gpus/discover')),'Unexpected server mutation');
     } finally {await context.close();}
   }
   await writeFile(resolve(output,'layout-report.json'),JSON.stringify({test_data:true,external_requests_allowed:false,reports},null,2)+'\n');
