@@ -35,3 +35,4 @@ apps/mobile/dist/
 apps/mobile/src-tauri/gen/
 apps/mobile/src-tauri/target/
 apps/mobile/core/target/
+apps/mobile/src-tauri/icons/
