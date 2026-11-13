@@ -14,6 +14,12 @@
 
 ![MinerDesk dashboard showing four profiles, one active engine, power, temperature and per-profile controls](docs/images/dashboard.png)
 
+## Mobile client preview
+
+[MinerDesk Mobile for Android and iOS](https://github.com/jontechlabs/MinerDesk/releases/tag/mobile-v0.1.0) connects your phone to an existing MinerDesk PC using its web address and LAN access key. Use the dashboard, miner profiles, schedules, logs and Fleet through a touch-friendly interface.
+
+The preview provides debug-signed Android APKs and a Mac-only iOS Simulator build. A real iPhone requires Apple signing; these are not store releases. Read the [mobile guide](docs/MOBILE.md) for connection, security, build and installation details. The desktop release and its updater remain separate.
+
 ## Why MinerDesk?
 
 Keep your pool settings, GPU choices and schedules in one place instead of maintaining a collection of launch scripts. See what is running, stop it when you need your GPU, and let recurring schedules handle the next session.

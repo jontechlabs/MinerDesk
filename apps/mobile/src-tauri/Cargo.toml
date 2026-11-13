@@ -1,0 +1,22 @@
+[package]
+name = "minerdesk-mobile"
+version = "0.1.0"
+description = "Mobile remote client for MinerDesk"
+edition = "2021"
+publish = false
+
+[lib]
+name = "minerdesk_mobile_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+minerdesk-mobile-core = { path = "../core" }
+serde_json = "1"
+tauri = { version = "~2.12.1", features = [] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

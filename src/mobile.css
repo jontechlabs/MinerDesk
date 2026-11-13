@@ -1,0 +1,343 @@
+/* Shared narrow-screen layout and the native remote-client surface.
+   Desktop layouts above 1024px retain their existing geometry. */
+.mobile-client-shell {
+  --fleet-bg: #0b121b;
+  --fleet-panel: #101b27;
+  --fleet-soft: #162432;
+  --fleet-line: #263747;
+  --fleet-text: #e8f2f7;
+  --fleet-muted: #9eb1c1;
+  --fleet-accent: #67edc5;
+  min-height: 0;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.mobile-client-shell > .app-shell { flex: 1; height: auto; min-height: 0; }
+.mobile-client-shell button { min-height: 44px; min-width: 44px; }
+.mobile-client-shell input:not([type="checkbox"]), .mobile-client-shell select, .mobile-client-shell textarea { min-height: 44px; font-size: 16px; }
+.mobile-connection-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px));
+  min-height: 52px;
+  background: #11241f;
+  border-bottom: 1px solid #2a5c48;
+  font-size: 12px;
+}
+.mobile-connection-name { min-width: 0; flex: 1; }
+.mobile-connection-name strong { display: block; color: #bcf4db; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mobile-connection-name span, .mobile-connection-name small {
+  display: block;
+  color: #9db9b1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mobile-connection-strip button { flex: none; min-height: 44px; }
+.mobile-connect-page {
+  min-height: 0;
+  height: 100vh;
+  height: 100dvh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: max(24px, env(safe-area-inset-top, 0px)) max(18px, env(safe-area-inset-right, 0px)) max(24px, env(safe-area-inset-bottom, 0px)) max(18px, env(safe-area-inset-left, 0px));
+  background: radial-gradient(ellipse at 30% 0%, #19352f 0%, transparent 55%), #090e16;
+}
+.mobile-connect-card {
+  width: min(100%, 480px);
+  min-width: 0;
+  margin: auto;
+  padding: 28px;
+  border: 1px solid #2a3c49;
+  border-radius: 24px;
+  background: linear-gradient(150deg, #14202c, #0e151f);
+  box-shadow: 0 24px 80px #0004;
+}
+.mobile-connect-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
+.mobile-connect-brand .brand-mark { width: 52px; height: 52px; border-radius: 16px; font-size: 23px; flex: none; }
+.mobile-connect-brand > span { min-width: 0; font-size: 21px; font-weight: 700; letter-spacing: -.4px; }
+.mobile-connect-brand > span small { display: block; margin-top: 3px; color: #9bb0bf; font-size: 12px; font-weight: 500; letter-spacing: .4px; }
+.mobile-connect-card > h1 { margin: 0 0 12px; font-size: 28px; line-height: 1.2; letter-spacing: -.7px; font-weight: 650; }
+.mobile-connect-brand h1 { margin: 0; font-size: 24px; letter-spacing: -.6px; }
+.mobile-connect-brand p { margin: 5px 0 0; color: #9bb0bf; font-size: 13px; }
+.mobile-connect-form { display: grid; gap: 18px; }
+.mobile-connect-form label { display: flex; flex-direction: column; gap: 7px; color: #b7c6d6; font-size: 13px; }
+.mobile-connect-form input:not([type="checkbox"]), .mobile-connect-form select {
+  width: 100%;
+  min-width: 0;
+  min-height: 50px;
+  padding: 12px;
+  border: 1px solid #35475c;
+  border-radius: 12px;
+  color: #f0f6fc;
+  background: #09111b;
+  font-size: 16px;
+}
+.mobile-connect-form input:focus-visible { outline: 2px solid #67edc5; outline-offset: 3px; }
+.mobile-connect-form button { min-height: 50px; font-size: 15px; }
+.mobile-connect-form label:has(input[type="checkbox"]) { flex-direction: row; align-items: flex-start; line-height: 1.55; min-height: 44px; }
+.mobile-connect-form input[type="checkbox"] { flex: none; width: 20px; height: 20px; margin: 2px 2px 0 0; accent-color: #67edc5; }
+.mobile-connect-error { padding: 12px 14px; border: 1px solid #793d4a; border-radius: 12px; background: #2b1820; color: #ffc0cb; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.mobile-connect-help, .mobile-session-note { color: #9caec0; font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.mobile-connect-help p { margin: 0 0 9px; }
+.mobile-connect-help code { color: #c7eadc; }
+.mobile-http-warning { padding: 13px; border: 1px solid #6b5736; background: #292216; border-radius: 12px; color: #edd4a3; font-size: 12px; line-height: 1.65; }
+.mobile-session-note { margin: 18px 0 0; padding-top: 15px; border-top: 1px solid #28394b; }
+
+@media (max-width: 1024px) {
+  html, body { min-width: 0; }
+  button, a.btn, .mini-btn, .row-actions button { min-height: 44px; min-width: 44px; }
+  input:not([type="checkbox"]), select, textarea, .mini-num { min-height: 46px; font-size: 16px; max-width: 100%; }
+  .check, .switch { min-height: 44px; }
+  .fleet-page .fleet-btn, .fleet-toggle button, .fleet-rig-name, .fleet-select { min-height: 44px; min-width: 44px; }
+  .fleet-page .fleet-field input, .fleet-page .fleet-field select, .fleet-page .fleet-field textarea { min-height: 46px; font-size: 16px; }
+  .app-shell { grid-template-columns: 168px minmax(0, 1fr); }
+  .app-shell > main, .page, .card, .form-grid > *, .schedule-grid > * { min-width: 0; }
+  .sidebar { padding-left: 10px; padding-right: 10px; }
+  .brand { padding-left: 3px; padding-right: 3px; gap: 9px; }
+  .brand strong { font-size: 14px; }
+  .brand span { font-size: 10px; }
+  .topbar { padding-left: 20px; padding-right: 20px; gap: 14px; }
+  .topbar > div:first-child { min-width: 0; }
+  .topbar p { overflow-wrap: anywhere; }
+  .page { padding: 20px; }
+  .miner-layout { grid-template-columns: minmax(0, 1fr); }
+  .miner-list { position: static; }
+  .filterbar { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .filterbar > input { grid-column: 1 / -1; }
+  .filterbar select { min-width: 0; }
+  .backend-strip, .update-banner, .command-progress, .command-error, .update-settings { margin-left: 20px; margin-right: 20px; }
+  .schedule-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .schedule-miners { grid-column: 1 / -1; }
+  .table-wrap, .fleet-table-wrap { max-width: 100%; min-width: 0; overscroll-behavior-inline: contain; }
+  .managed-path, .security-item, .card-head { flex-wrap: wrap; }
+}
+
+@media (max-width: 760px), (max-width: 1024px) and (max-height: 500px) and (orientation: landscape) {
+  :root { --mobile-nav-height: 72px; }
+  html, body, #root { width: 100%; min-width: 0; height: 100%; }
+  body, body:has(.fleet-shell) { min-width: 0; }
+  body { -webkit-text-size-adjust: 100%; }
+  button, input, select, textarea { touch-action: manipulation; }
+  button, a.btn, .mini-btn, .row-actions button { min-height: 44px; min-width: 44px; }
+  input:not([type="checkbox"]), select, textarea, .mini-num { min-height: 46px; font-size: 16px; max-width: 100%; }
+  input[type="checkbox"] { width: 20px; height: 20px; }
+  button:focus-visible, a:focus-visible { outline: 2px solid #67edc5; outline-offset: 3px; }
+  .app-shell, .fleet-shell {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .app-shell > .sidebar, .fleet-shell > .sidebar {
+    flex: none;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px;
+    border-inline: 0;
+    border-bottom: 1px solid #263243;
+    background: #0b111a;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .mobile-client-shell > .app-shell { height: auto; }
+  .mobile-client-shell .app-shell > .sidebar { padding-top: 10px; }
+  .sidebar .brand, .fleet-shell .brand { padding: 0; gap: 10px; }
+  .sidebar .brand-mark, .fleet-shell .brand-mark { width: 30px; height: 30px; border-radius: 10px; flex: none; }
+  .sidebar .brand strong { font-size: 14px; }
+  .sidebar .brand span { font-size: 10px; margin-top: 2px; }
+  .app-shell .sidebar-foot { display: none; }
+  .app-shell > .sidebar nav, .fleet-shell > .sidebar nav {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 2px;
+    height: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px));
+    padding: 6px max(5px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(5px, env(safe-area-inset-left, 0px));
+    border-top: 1px solid #2a3b4b;
+    background: #101924f5;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 -8px 25px #0003;
+  }
+  .app-shell > .sidebar nav button, .fleet-shell > .sidebar nav button {
+    min-width: 0;
+    min-height: 50px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 2px;
+    border-radius: 11px;
+    font-size: 10px;
+    line-height: 1.2;
+    text-align: center;
+    color: #8da0b5;
+    overflow: hidden;
+  }
+  .app-shell .sidebar nav .nav-dot { display: none; }
+  .app-shell .sidebar nav .nav-label { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .app-shell .sidebar nav button.nav-active { color: #8ff2d0; background: #19372f; }
+  .app-shell .sidebar nav button::before {
+    content: "";
+    width: 21px;
+    height: 21px;
+    flex: none;
+    background: currentColor;
+    mask: var(--mobile-nav-icon) center / contain no-repeat;
+    -webkit-mask: var(--mobile-nav-icon) center / contain no-repeat;
+  }
+  .sidebar nav button:nth-child(1) { --mobile-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round' d='M3 3h7v7H3zm11 0h7v11h-7zM3 14h7v7H3zm11 4h7v3h-7z'/%3E%3C/svg%3E"); }
+  .sidebar nav button:nth-child(2) { --mobile-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round'%3E%3Cpath d='M8 7h8v6H8zM2 17h7v5H2zm13 0h7v5h-7zM12 13v2M5.5 17v-2h13v2M12 1v6'/%3E%3C/g%3E%3C/svg%3E"); }
+  .sidebar nav button:nth-child(3) { --mobile-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='black' stroke-width='1.8'%3E%3Crect x='5' y='5' width='14' height='14' rx='2'/%3E%3Cpath d='M9 9h6v6H9zM8 1v4m8-4v4M8 19v4m8-4v4M1 8h4m-4 8h4M19 8h4m-4 8h4'/%3E%3C/g%3E%3C/svg%3E"); }
+  .sidebar nav button:nth-child(4) { --mobile-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M7 2v6m10-6v6M3 11h18m-13 5h3m3 0h3'/%3E%3C/g%3E%3C/svg%3E"); }
+  .sidebar nav button:nth-child(5) { --mobile-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2' y='4' width='20' height='16' rx='2'/%3E%3Cpath d='m6 9 4 3-4 3m7 0h5'/%3E%3C/g%3E%3C/svg%3E"); }
+  .sidebar nav button:nth-child(6) { --mobile-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M4 3v18m8-18v18m8-18v18M1 8h6m2 8h6m2-10h6'/%3E%3C/g%3E%3C/svg%3E"); }
+  .app-shell > main {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    width: 100%;
+    overflow: auto;
+    padding-bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) + 14px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    scrollbar-gutter: stable;
+  }
+  .topbar, .fleet-shell .topbar { padding: 15px 16px; min-height: 0; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+  .topbar h1 { font-size: 21px; letter-spacing: -.4px; }
+  .topbar p { font-size: 12px; line-height: 1.5; }
+  .topbar .top-actions { width: 100%; gap: 8px; }
+  .top-actions .btn { flex: 1; font-size: 12px; padding-inline: 9px; }
+  .page { padding: 16px; width: 100%; }
+  .metric-grid { gap: 9px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 12px; }
+  .metric { min-width: 0; min-height: 103px; padding: 14px; border-radius: 15px; }
+  .metric span { font-size: 12px; line-height: 1.4; }
+  .metric strong { font-size: clamp(23px, 6.5vw, 30px); margin-top: 17px; white-space: nowrap; }
+  .card { padding: 16px; border-radius: 15px; }
+  .card h2 { font-size: 16px; }
+  .card-head p, .muted { font-size: 12px; line-height: 1.55; }
+  .card-head { gap: 12px; flex-wrap: wrap; }
+  .card-head > div { min-width: 0; }
+  .card-head h2, .miner-item strong { overflow-wrap: anywhere; }
+  .filterbar { padding: 12px; gap: 9px; grid-template-columns: minmax(0, 1fr); }
+  .filterbar > input { grid-column: auto; }
+  .form-grid, .form-grid.three, .path-grid, .schedule-grid, .schedule-power-grid, .miner-path-row, .per-gpu-row { grid-template-columns: minmax(0, 1fr); }
+  .form-grid { gap: 15px; }
+  .field > span, .check, .switch, .schedule label > span { font-size: 13px; }
+  .field-check { align-self: stretch; }
+  .check, .switch { min-height: 44px; line-height: 1.45; }
+  .check input[type="checkbox"], .switch input[type="checkbox"], .gpu-choice input[type="checkbox"] { width: 20px; height: 20px; min-width: 20px; max-width: 20px; flex-basis: 20px; }
+  .inline-actions { width: 100%; gap: 8px; }
+  .inline-actions button { flex: 1; }
+  .miner-list { max-height: 300px; overflow: auto; }
+  .miner-item { min-height: 58px; padding: 11px; }
+  .miner-item strong { font-size: 13px; }
+  .miner-item small { font-size: 12px; }
+  .schedule-head { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  .schedule-head .schedule-name { grid-column: 1 / -1; min-width: 0; }
+  .schedule-miners { grid-template-columns: minmax(0, 1fr); }
+  .days { flex-wrap: wrap; gap: 6px; }
+  .day { min-width: 44px; min-height: 44px; font-size: 12px; flex: 1; padding-inline: 5px; }
+  .schedule-power-grid { gap: 15px; }
+  .gpu-picker-head { flex-wrap: wrap; }
+  .gpu-options { grid-template-columns: minmax(0, 1fr); }
+  .gpu-choice { min-height: 62px; }
+  .gpu-choice strong, .gpu-picker-head strong, .gpu-tuning-name strong { font-size: 13px; }
+  .gpu-choice small, .gpu-picker-head span, .gpu-manual summary, .gpu-manual-body p { font-size: 12px; line-height: 1.55; }
+  .legacy-defaults summary { min-height: 44px; display: flex; align-items: center; font-size: 12px; }
+  .settings-dl > div { grid-template-columns: minmax(0, 1fr); gap: 7px; padding-block: 13px; }
+  .settings-dl dt, .settings-dl dd { font-size: 12px; line-height: 1.5; }
+  .engine-grid { grid-template-columns: minmax(0, 1fr); }
+  .engine-grid strong { font-size: 13px; }
+  .engine-grid span { font-size: 12px; }
+  .notice, .security-item span, .gpu-diagnostic { font-size: 12px; line-height: 1.6; }
+  .security-item { align-items: flex-start; gap: 12px; }
+  .security-item > div { flex: 1 1 180px; min-width: 0; }
+  .managed-path { flex-direction: column; gap: 6px; }
+  .backend-strip, .update-banner, .command-progress, .command-error, .update-settings { margin-left: 16px; margin-right: 16px; }
+  .update-banner { padding: 16px; }
+  .update-banner strong { font-size: 14px; }
+  .update-banner p { font-size: 12px; line-height: 1.6; }
+  .update-actions { flex-shrink: 1; width: 100%; }
+  .update-actions > * { flex: 1; text-align: center; }
+  .command-progress, .command-error { padding: 13px; font-size: 12px; }
+  .command-error { flex-wrap: wrap; }
+  .backend-diag-grid { grid-template-columns: minmax(0, 1fr); }
+  .dev-tip-card { grid-template-columns: minmax(0, 1fr); padding: 16px; gap: 12px; }
+  .dev-tip-art { display: none; }
+  .dev-tip-copy h3 { font-size: 18px; }
+  .dev-tip-input { display: flex; flex-direction: column; align-items: stretch; gap: 7px; }
+  .dev-tip-input input { text-align: start; }
+  .dev-tip-input small { min-height: 0; }
+  .dev-tip-input > div { max-width: 180px; }
+  .console-toolbar { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .console-toolbar select { min-width: 0; }
+  .console { padding: 12px; font-size: 12px; line-height: 1.6; }
+  .console-main .console-page { padding-bottom: 0; }
+  .power-modal-backdrop { align-items: end; padding: max(12px, env(safe-area-inset-top, 0px)) 0 0; }
+  .power-modal { width: 100%; max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 12px); overflow: auto; border-radius: 24px 24px 0 0; padding: 26px 20px calc(24px + env(safe-area-inset-bottom, 0px)); }
+  .power-close { min-width: 44px; min-height: 44px; top: 8px; right: 8px; }
+  .power-actions { flex-wrap: wrap; }
+  .power-actions button { flex: 1 1 130px; }
+  .mobile-connection-strip { padding-top: calc(6px + env(safe-area-inset-top, 0px)); padding-bottom: 6px; }
+  .mobile-connect-card { padding: 23px 19px; }
+  .mobile-connect-brand { gap: 12px; }
+  .mobile-connect-brand h1 { font-size: 22px; }
+}
+
+/* Keep table semantics in the DOM; the visible labels repeat its column headers.
+   Only miner tables become cards. Fleet's optional rig table stays scrollable. */
+@media (max-width: 620px) {
+  .table-card:has(.dashboard-table) { padding: 0; border: 0; background: transparent; overflow: visible; }
+  .table-wrap:has(.dashboard-table) { overflow: visible; }
+  .dashboard-table, .dashboard-table tbody { display: block; min-width: 0; width: 100%; }
+  .dashboard-table thead { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+  .dashboard-table tbody { display: grid; gap: 12px; }
+  .dashboard-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid #263446; background: #111a26; border-radius: 16px; padding: 14px; gap: 13px 12px; }
+  .dashboard-table td { display: block; min-width: 0; padding: 0; border: 0; font-size: 14px; overflow-wrap: anywhere; }
+  .dashboard-table td::before { content: attr(data-label); display: block; color: #90a1b6; font-size: 11px; line-height: 1.5; margin-bottom: 4px; }
+  .dashboard-table td:first-child { grid-column: 1 / -1; padding-bottom: 12px; border-bottom: 1px solid #28394c; }
+  .dashboard-table td:first-child::before, .dashboard-table .row-actions::before { display: none; }
+  .dashboard-table td strong { font-size: 15px; }
+  .dashboard-table td small { max-width: none; white-space: normal; overflow: visible; text-overflow: clip; font-size: 12px; line-height: 1.5; }
+  .dashboard-table .row-actions { grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid #28394c; white-space: normal; }
+  .dashboard-table .row-actions-inner { display: flex; gap: 8px; flex-wrap: wrap; }
+  .dashboard-table .row-actions button { flex: 1 1 100px; min-height: 44px; font-size: 12px; }
+  .dashboard-table .state { font-size: 12px; }
+  .dashboard-table .miner-runtime-error { max-width: none; }
+}
+
+@media (max-width: 1024px) and (max-height: 500px) and (orientation: landscape) {
+  :root { --mobile-nav-height: 58px; }
+  /* Keep fixed navigation available while the decorative brand header is hidden. */
+  .app-shell > .sidebar, .fleet-shell > .sidebar { display: block; height: 0; min-height: 0; padding: 0; border: 0; }
+  .app-shell > .sidebar .brand { display: none; }
+  .app-shell > .sidebar nav button { min-height: 44px; padding-block: 3px; gap: 2px; }
+  .app-shell > .sidebar nav button::before { width: 17px; height: 17px; }
+  .topbar { padding-block: 10px; flex-wrap: nowrap; align-items: center; }
+  .topbar h1 { font-size: 17px; }
+  .topbar .top-actions { width: auto; flex: none; }
+  .topbar p { font-size: 11px; }
+  .mobile-connection-strip { min-height: 44px; padding-block: 3px; }
+  .page { padding-top: 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-client-shell *, .mobile-connect-page * { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
+}
+@media (hover: none) {
+  .btn:hover, .mini-btn:hover, .row-actions button:hover { transform: none; }
+}

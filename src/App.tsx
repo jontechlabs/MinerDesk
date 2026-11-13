@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ApiTimeoutError, requestJson } from "./api";
+import { createMobileApi, isDesktopTauri, isMobileClient } from "./runtime";
 import AppUpdates from "./AppUpdates";
 import BackendPanel from "./BackendPanel";
 import MinerScheduleControls, { ScheduleBadge } from "./MinerScheduleControls";
@@ -20,7 +21,7 @@ import type {
 } from "./types";
 
 type Tab = "dashboard" | "fleet" | "miners" | "schedules" | "console" | "settings";
-const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as unknown as Record<string, unknown>);
+const isTauri = isDesktopTauri;
 const DESKTOP_VERSION = "0.8.2";
 
 function resolveApiBase() {
@@ -38,11 +39,12 @@ function resolveApiBase() {
   return `http://127.0.0.1:${port}`;
 }
 function queryToken() {
+  if (isMobileClient) return ""; // Native session owns the access key; never persist it in the WebView.
   const q = new URLSearchParams(location.search).get("token");
   if (q) localStorage.setItem("minerdesk.web.token", q);
   return q || localStorage.getItem("minerdesk.web.token") || "";
 }
-async function api<T>(path: string, options: RequestInit = {}, token = "", timeoutMs = 5000): Promise<T> {
+async function desktopApi<T>(path: string, options: RequestInit = {}, token = "", timeoutMs = 5000): Promise<T> {
   return requestJson<T>(`${resolveApiBase()}${path}`, options, token, timeoutMs);
 }
 function formatHashrate(hps: number | null) {
@@ -101,9 +103,19 @@ function hideBootSplash() {
   window.setTimeout(() => el.remove(), 320);
 }
 
-export default function App() {
+export default function App({ mobileConnectionId = "" }: { mobileConnectionId?: string } = {}) {
+  const sessionId = useRef(mobileConnectionId).current;
+  const api = useMemo(() => isMobileClient ? createMobileApi(sessionId) : desktopApi, [sessionId]);
   const [tab, setTab] = useState<Tab>("dashboard");
+  const mainScroll = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (mainScroll.current) {
+      mainScroll.current.scrollTop = 0;
+      mainScroll.current.scrollLeft = 0;
+    }
+  }, [tab]);
   const [token, setToken] = useState(queryToken());
+  const [mobileLanguage, setMobileLanguage] = useState(localStorage.getItem("minerdesk.language") || "en");
   const [health, setHealth] = useState<Health | null>(null);
   const [localApiOnline, setLocalApiOnline] = useState(false);
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -145,7 +157,7 @@ export default function App() {
   const bootstrapStarted = useRef(false);
   const lastAppliedToken = useRef(token);
 
-  const language = config?.ui?.language || localStorage.getItem("minerdesk.language") || "en";
+  const language = isMobileClient ? mobileLanguage : config?.ui?.language || localStorage.getItem("minerdesk.language") || "en";
   const t = (key: string) => tr(language, key);
   const days = dayNames(language);
   const fleetRequest = useCallback(<T,>(path: string, options: RequestInit = {}, timeoutMs = 15000) =>
@@ -168,7 +180,7 @@ export default function App() {
         api<EngineSpec[]>("/api/engines", {}, token), api<MinerStatus[]>("/api/status", {}, token),
       ]);
       let loaded = c;
-      const legacyRaw = localStorage.getItem("minerdesk.settings.v0.3");
+      const legacyRaw = isMobileClient ? null : localStorage.getItem("minerdesk.settings.v0.3");
       if (legacyRaw && c.miners.length === 1 && !c.miners[0].wallet) {
         try {
           const old = JSON.parse(legacyRaw) as Record<string, unknown>;
@@ -187,8 +199,10 @@ export default function App() {
           localStorage.setItem("minerdesk.migrated.v0.5", "1");
         } catch { /* optional legacy migration */ }
       }
-      localStorage.setItem("minerdesk.web.port", String(loaded.web?.desktop_api_port || 17888));
-      if (loaded.web?.token && !localStorage.getItem("minerdesk.web.token")) localStorage.setItem("minerdesk.web.token", loaded.web.token);
+      if (!isMobileClient) {
+        localStorage.setItem("minerdesk.web.port", String(loaded.web?.desktop_api_port || 17888));
+        if (loaded.web?.token && !localStorage.getItem("minerdesk.web.token")) localStorage.setItem("minerdesk.web.token", loaded.web.token);
+      }
       setBootSplashStatus("Loading miners and schedules…");
       setHealth(h); setLocalApiOnline(true); setConfig(loaded); configRef.current = loaded; setEngines(e); setStatuses(s);
       if (!lastNativeUi.current) lastNativeUi.current = {
@@ -197,11 +211,13 @@ export default function App() {
       if (isTauri && h.version !== DESKTOP_VERSION) {
         setStatusText(`Backend version ${h.version} detected; desktop is ${DESKTOP_VERSION}. Restart MinerDesk and check for another running instance.`);
       } else {
-        setStatusText(h.headless ? t("headlessMode") : t("desktopMode"));
+        setStatusText(isMobileClient
+          ? `${language === "fr" ? "Instance connectée" : "Connected instance"} · MinerDesk ${h.version}`
+          : h.headless ? t("headlessMode") : t("desktopMode"));
       }
       if (!selectedMiner && loaded.miners[0]) setSelectedMiner(loaded.miners[0].id);
       if (!consoleMiner && loaded.miners[0]) setConsoleMiner(loaded.miners[0].id);
-      api<SecurityStatus>("/api/security/status", {}, token).then(setSecurity).catch(() => null);
+      if (!isMobileClient) api<SecurityStatus>("/api/security/status", {}, token).then(setSecurity).catch(() => null);
       hideBootSplash();
       return true;
     } catch (e) {
@@ -351,6 +367,7 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [token, tab]);
   useEffect(() => {
+    if (isMobileClient) return; // A phone must not own the rig's local sleep-confirmation lifecycle.
     const load = async () => {
       // The native Desktop must keep polling while minimized/hidden so a schedule
       // end can restore the window and show the sleep/hibernate confirmation. A
@@ -381,7 +398,7 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [pendingPower?.id, appUpdating]);
   useEffect(() => {
-    if (!pendingPower) return;
+    if (isMobileClient || !pendingPower) return;
     const cancelOnClose = () => {
       const headers: Record<string,string> = {};
       if (token) headers["X-MinerDesk-Token"] = token;
@@ -503,10 +520,12 @@ export default function App() {
       // The backend now acknowledges disk persistence without waiting for wake
       // task/firewall synchronization. Keep unsaved edits if persistence fails.
       await api("/api/config", { method: "PUT", body: JSON.stringify(next) }, token, 15000);
-      localStorage.setItem("minerdesk.web.port", String(next.web.desktop_api_port || 17888));
-      localStorage.setItem("minerdesk.web.token", next.web.token || "");
-      localStorage.setItem("minerdesk.language", next.ui.language || "en");
-      setToken(next.web.token || token);
+      if (!isMobileClient) {
+        localStorage.setItem("minerdesk.web.port", String(next.web.desktop_api_port || 17888));
+        localStorage.setItem("minerdesk.web.token", next.web.token || "");
+      }
+      localStorage.setItem("minerdesk.language", isMobileClient ? mobileLanguage : next.ui.language || "en");
+      if (!isMobileClient) setToken(next.web.token || token);
       // Edits made while the request was in flight are not silently discarded.
       setDirty(JSON.stringify(configRef.current) !== JSON.stringify(next));
       setStatusText(t("saveOk"));
@@ -544,6 +563,9 @@ export default function App() {
     try {
       const elevatedStarts = health?.platform === "linux" && (action === "start" || action === "force-start" || action === "restart" || action === "start-all")
         ? (config?.miners.filter(m => m.enabled && m.linux_run_as_root && !m.linux_root_authorization && (action === "start-all" || m.id === id)).length || 0) : 0;
+      if (isMobileClient && elevatedStarts) throw new Error(language === "fr"
+        ? "Autorisez d’abord le minage root dans MinerDesk sur le PC concerné. Aucun mot de passe administrateur ne doit être saisi sur le téléphone."
+        : "Authorize root mining in MinerDesk on the rig first. Do not enter an administrator password on this phone.");
       const outcome = await runMiningCommand({
         elevatedStarts,
         action, id, dirty, token, request: api,
@@ -659,13 +681,13 @@ export default function App() {
 
   return <div className={tab==="fleet"?"app-shell fleet-shell":"app-shell"}>
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>v{DESKTOP_VERSION} · multi-miner</span></div></div>
-      <nav>{(["dashboard","fleet","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot"/>{x==="fleet"?"Fleet":t(x)}</button>)}</nav>
-      <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {tab==="fleet"?(language==="fr"?"MINEURS LOCAUX":"LOCAL MINERS"):t("activeMiners").toUpperCase()}</div><div className={`status-pill ${localBackendOnline?"on":"off"}`}><span/>{localBackendOnline?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
+      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>{isMobileClient ? (language === "fr" ? "Pilotage mobile" : "Mobile controller") : `v${DESKTOP_VERSION} · multi-miner`}</span></div></div>
+      <nav aria-label={language === "fr" ? "Navigation principale" : "Main navigation"}>{(["dashboard","fleet","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} aria-label={x==="fleet"?"Fleet":t(x)} aria-current={tab===x?"page":undefined} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot" aria-hidden="true"/><span className="nav-label">{isMobileClient ? ({ dashboard: language === "fr" ? "Accueil" : "Overview", fleet: "Fleet", miners: language === "fr" ? "Mineurs" : "Miners", schedules: language === "fr" ? "Planning" : "Schedule", console: "Console", settings: language === "fr" ? "Réglages" : "Settings" }[x]) : x==="fleet"?"Fleet":t(x)}</span></button>)}</nav>
+      <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {tab==="fleet"?(language==="fr"?"MINEURS LOCAUX":"LOCAL MINERS"):t("activeMiners").toUpperCase()}</div><div className={`status-pill ${localBackendOnline?"on":"off"}`}><span/>{localBackendOnline?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{isMobileClient ? "REMOTE CLIENT" : health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>
-    <main className={tab==="console"?"console-main":""}>
-      <header className="topbar"><div><h1>{title}</h1><p>{tab==="fleet"?(language==="fr"?"Vos machines, un seul espace de pilotage.":"Your rigs, one place to manage them."):statusText}{dirty?` · ${t("unsaved")}`:""}</p></div>{tab!=="fleet"&&<div className="top-actions">{dirty&&<button className="btn primary" onClick={()=>saveConfig()} disabled={busy}>{t("save")}</button>}<button className="btn ghost" onClick={()=>allAction("start-all")} title={t("startAllScheduleHelp")} disabled={busy||!health}>{t("startAll")}</button><button className="btn danger" onClick={()=>allAction("stop-all")} disabled={busy||!health}>{t("stopAll")}</button></div>}</header>
-      <AppUpdates desktop={isTauri} language={language} settings={tab === "settings"} dirty={dirty} busy={busy || backendBusy || Boolean(pendingPower)} onInstalling={setAppUpdating} checkWeb={(force) => api<AppUpdate>(`/api/updates?force=${force}`, {}, token, 25000)}/>
+    <main ref={mainScroll} className={tab==="console"?"console-main":""}>
+      <header className="topbar"><div><h1>{title}</h1><p>{tab==="fleet"?(language==="fr"?"Vos machines, un seul espace de pilotage.":"Your rigs, one place to manage them."):statusText}{dirty?` · ${t("unsaved")}`:""}</p></div>{tab!=="fleet"&&<div className="top-actions">{dirty&&<button className="btn primary" onClick={()=>saveConfig()} disabled={busy}>{t("save")}</button>}<button className="btn ghost" onClick={()=>allAction("start-all")} title={t("startAllScheduleHelp")} disabled={busy||!health||(isMobileClient&&!localApiOnline)}>{t("startAll")}</button><button className="btn danger" onClick={()=>allAction("stop-all")} disabled={busy||!health||(isMobileClient&&!localApiOnline)}>{t("stopAll")}</button></div>}</header>
+      {!isMobileClient&&<AppUpdates desktop={isTauri} language={language} settings={tab === "settings"} dirty={dirty} busy={busy || backendBusy || Boolean(pendingPower)} onInstalling={setAppUpdating} checkWeb={(force) => api<AppUpdate>(`/api/updates?force=${force}`, {}, token, 25000)}/>}
 
       {commandProgress && <div className="command-progress" role="status">{commandProgress}</div>}
       {commandError && <div className="command-error" role="alert">
@@ -680,7 +702,7 @@ export default function App() {
       {tab==="dashboard"&&<section className="page">
         <div className="metric-grid"><Metric title={t("activeMiners")} value={`${summary.running} / ${filtered.length}`} accent/><Metric title={t("totalPower")} value={`${summary.power.toFixed(0)} W`}/><Metric title={t("maxTemp")} value={summary.temp?`${summary.temp.toFixed(0)} °C`:"—"}/><Metric title={t("sharesAR")} value={`${summary.accepted} / ${summary.rejected}`}/></div>
         <div className="card filterbar"><input placeholder={t("filterPlaceholder")} value={filterText} onChange={e=>setFilterText(e.target.value)}/><select value={filterEngine} onChange={e=>setFilterEngine(e.target.value)}><option value="all">{t("allMiners")}</option>{engines.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select><select value={filterState} onChange={e=>setFilterState(e.target.value)}><option value="all">{t("allStates")}</option><option value="running">{t("running")}</option><option value="stopped">{t("stopped")}</option><option value="disabled">{t("disabled")}</option></select></div>
-        <div className="card table-card"><div className="table-wrap"><table><thead><tr><th>{t("profile")}</th><th>{t("engine")}</th><th>{t("algoGpu")}</th><th>{t("state")}</th><th>{t("hashrate")}</th><th>W</th><th>°C</th><th>A/R</th><th>{t("uptime")}</th><th/></tr></thead><tbody>{filtered.map(s=><tr key={s.profile.id}><td><strong>{s.profile.name}</strong><small>{s.profile.pool}</small>{s.runtime.last_error&&<small className="miner-runtime-error">{s.runtime.last_error}</small>}</td><td>{engines.find(e=>e.id===s.profile.engine)?.name||s.profile.engine}</td><td>{s.profile.algorithm||"—"}<small>GPU {s.profile.gpu_ids||t("allGpus")}</small></td><td>{s.runtime.running?<span className="state run">● {t("mining")}</span>:!s.profile.enabled?<><span className="state disabled">○ {t("disabled").toUpperCase()}</span><small className="disabled-note">{t("minerDisabledHint")}</small></>:<span className="state stop">○ {t("stop").toUpperCase()}</span>}{s.runtime.running&&!s.profile.enabled&&<small className="disabled-note">{t("minerDisabledHint")}</small>}{s.runtime.dev_tip_active&&<small className="dev-tip-active-badge">♥ {t("devTipActive")}</small>}<ScheduleBadge status={s} hasSchedule={(config?.schedules.some(w=>w.enabled&&w.miner_ids.includes(s.profile.id)) ?? s.has_schedule ?? false)} language={language}/></td><td>{formatHashrate(s.runtime.metrics.hashrate_hps)}</td><td>{s.runtime.metrics.power_w?.toFixed(0)||"—"}</td><td>{s.runtime.metrics.temperature_c?.toFixed(0)||"—"}</td><td>{s.runtime.metrics.accepted}/{s.runtime.metrics.rejected}</td><td>{fmtUptime(s.runtime.uptime_seconds)}</td><td className="row-actions"><MinerScheduleControls status={s} hasSchedule={(config?.schedules.some(w=>w.enabled&&w.miner_ids.includes(s.profile.id)) ?? s.has_schedule ?? false)} language={language} busy={busy} connected={!!health} onAction={action=>minerAction(s.profile.id,action)} onConfig={()=>{setSelectedMiner(s.profile.id);setTab("miners")}}/></td></tr>)}</tbody></table></div></div>
+        <div className="card table-card"><div className="table-wrap"><table className="dashboard-table" role="table"><thead role="rowgroup"><tr role="row"><th role="columnheader">{t("profile")}</th><th role="columnheader">{t("engine")}</th><th role="columnheader">{t("algoGpu")}</th><th role="columnheader">{t("state")}</th><th role="columnheader">{t("hashrate")}</th><th role="columnheader">W</th><th role="columnheader">°C</th><th role="columnheader">A/R</th><th role="columnheader">{t("uptime")}</th><th role="columnheader" aria-label="Actions"/></tr></thead><tbody role="rowgroup">{filtered.map(s=><tr role="row" key={s.profile.id}><td role="cell" data-label={t("profile")}><strong>{s.profile.name}</strong><small>{s.profile.pool}</small>{s.runtime.last_error&&<small className="miner-runtime-error">{s.runtime.last_error}</small>}</td><td role="cell" data-label={t("engine")}>{engines.find(e=>e.id===s.profile.engine)?.name||s.profile.engine}</td><td role="cell" data-label={t("algoGpu")}>{s.profile.algorithm||"—"}<small>GPU {s.profile.gpu_ids||t("allGpus")}</small></td><td role="cell" data-label={t("state")}>{s.runtime.running?<span className="state run">● {t("mining")}</span>:!s.profile.enabled?<><span className="state disabled">○ {t("disabled").toUpperCase()}</span><small className="disabled-note">{t("minerDisabledHint")}</small></>:<span className="state stop">○ {t("stop").toUpperCase()}</span>}{s.runtime.running&&!s.profile.enabled&&<small className="disabled-note">{t("minerDisabledHint")}</small>}{s.runtime.dev_tip_active&&<small className="dev-tip-active-badge">♥ {t("devTipActive")}</small>}<ScheduleBadge status={s} hasSchedule={(config?.schedules.some(w=>w.enabled&&w.miner_ids.includes(s.profile.id)) ?? s.has_schedule ?? false)} language={language}/></td><td role="cell" data-label={t("hashrate")}>{formatHashrate(s.runtime.metrics.hashrate_hps)}</td><td role="cell" data-label="W">{s.runtime.metrics.power_w?.toFixed(0)||"—"}</td><td role="cell" data-label="°C">{s.runtime.metrics.temperature_c?.toFixed(0)||"—"}</td><td role="cell" data-label="A/R">{s.runtime.metrics.accepted}/{s.runtime.metrics.rejected}</td><td role="cell" data-label={t("uptime")}>{fmtUptime(s.runtime.uptime_seconds)}</td><td role="cell" data-label="Actions" className="row-actions"><MinerScheduleControls status={s} hasSchedule={(config?.schedules.some(w=>w.enabled&&w.miner_ids.includes(s.profile.id)) ?? s.has_schedule ?? false)} language={language} busy={busy} connected={!!health && (!isMobileClient || localApiOnline)} onAction={action=>minerAction(s.profile.id,action)} onConfig={()=>{setSelectedMiner(s.profile.id);setTab("miners")}}/></td></tr>)}</tbody></table></div></div>
       </section>}
 
       {tab==="miners"&&config&&<section className="page miner-layout">
@@ -708,7 +730,7 @@ export default function App() {
           </div>
 
           <GpuTuningPanel profile={selected} devices={gpuSelectionDevices} language={language} onGpuChange={(selector,patch)=>mutateGpuTuning(selected,selector,patch)} onProfileChange={patch=>mutateMiner(selected.id,patch)}/>
-          <LinuxElevationControl profile={selected} platform={health?.platform} available={health?.linux_elevation_available} language={language} local={isTauri || ["localhost","127.0.0.1","[::1]","::1"].includes(location.hostname)} onChange={patch=>mutateMiner(selected.id,patch)} onAuthorizationAction={(action, fingerprint)=>rootAuthorizationAction(selected,action,fingerprint)}/>
+          {isMobileClient ? (selected.linux_run_as_root&&<p className="notice">{language === "fr" ? "Ce profil utilise le mode root sur le rig. Toute autorisation initiale doit être validée dans MinerDesk sur ce PC." : "This profile uses root mining on the rig. Initial authorization must be approved in MinerDesk on that PC."}</p>) : <LinuxElevationControl profile={selected} platform={health?.platform} available={health?.linux_elevation_available} language={language} local={isTauri || ["localhost","127.0.0.1","[::1]","::1"].includes(location.hostname)} onChange={patch=>mutateMiner(selected.id,patch)} onAuthorizationAction={(action, fingerprint)=>rootAuthorizationAction(selected,action,fingerprint)}/>}
           <div className="form-grid three"><NumField label={t("minerApiPort")} value={selected.api_port} onChange={v=>mutateMiner(selected.id,{api_port:v})}/>{!["onezerominer","peakminer"].includes(selected.engine) && <label className="check field-check"><input type="checkbox" checked={selected.disable_cpu} onChange={e=>mutateMiner(selected.id,{disable_cpu:e.target.checked})}/> {t("disableCpu")}</label>}</div><label className="check"><input type="checkbox" checked={selected.allow_gpu_overlap} onChange={e=>mutateMiner(selected.id,{allow_gpu_overlap:e.target.checked})}/> {t("gpuOverlap")}</label>
           <div className="section-title">{t("advancedArgs")}</div><textarea value={selected.extra_args} onChange={e=>mutateMiner(selected.id,{extra_args:e.target.value})} placeholder={t("advancedPlaceholder")}/>
         </div>}
@@ -734,7 +756,7 @@ export default function App() {
       {tab==="console"&&<section className="page console-page"><div className="console-toolbar"><select value={consoleMiner} onChange={e=>setConsoleMiner(e.target.value)}>{config?.miners.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select><span>{logs.length} {t("lines")}</span></div><pre className="console">{logs.map((l,i)=><div key={`${l.ts}-${i}`} className={l.stream==="stderr"?"log-err":l.stream==="system"?"log-system":""}>{new Date(l.ts*1000).toLocaleTimeString()} {l.text}</div>)}<div ref={logsEnd}/></pre></section>}
 
       {tab==="settings"&&config&&<section className="page form-page">
-        <div className="card"><div className="card-head"><div><h2>{t("language")}</h2><p>{t("languageHelp")}</p></div></div><SelectField label={t("language")} value={config.ui.language||"en"} onChange={v=>{setConfig({...config,ui:{...config.ui,language:v}});setDirty(true)}} options={LANGUAGES.map(([v,l])=>[v,l])}/></div>
+        <div className="card"><div className="card-head"><div><h2>{t("language")}</h2><p>{t("languageHelp")}</p></div></div><SelectField label={t("language")} value={isMobileClient ? language : config.ui.language||"en"} onChange={v=>{if(isMobileClient){setMobileLanguage(v);localStorage.setItem("minerdesk.language",v);}else{setConfig({...config,ui:{...config.ui,language:v}});setDirty(true)}}} options={LANGUAGES.map(([v,l])=>[v,l])}/></div>
 
         {isTauri&&<div className="card"><div className="card-head"><div><h2>{t("windowsBehavior")}</h2><p>{t("windowsBehaviorHelp")}</p></div></div>
           <div className="windows-option-list">
@@ -745,15 +767,15 @@ export default function App() {
         </div>}
 
 
-        <div className="card"><div className="card-head"><div><h2>{t("webTitle")}</h2><p>{t("webHelp")}</p></div></div>
+        {!isMobileClient&&<div className="card"><div className="card-head"><div><h2>{t("webTitle")}</h2><p>{t("webHelp")}</p></div></div>
           <dl className="settings-dl"><div><dt>{t("currentMode")}</dt><dd>{health?.headless?(health.desktop_owned?"Headless (Desktop-managed)":"Headless (standalone)"):"Desktop Tauri"}</dd></div><div><dt>{t("minerCrashGuard")}</dt><dd>{health?.miner_crash_guard?t("minerCrashGuardActive"):t("minerCrashGuardUnavailable")}</dd></div><div><dt>{t("localUrl")}</dt><dd><code>http://127.0.0.1:{config.web.desktop_api_port||17888}/</code></dd></div><div><dt>{t("configFile")}</dt><dd>{health?.config_path||"—"}</dd></div></dl>
           <div className="form-grid three"><NumField label={t("webPort")} value={config.web.desktop_api_port} onChange={v=>{if(v){setConfig({...config,web:{...config.web,desktop_api_port:v}});setDirty(true)}}}/><label className="check field-check"><input type="checkbox" checked={config.web.expose_lan} onChange={e=>{let nextToken=config.web.token;if(e.target.checked&&!nextToken)nextToken=randToken();setConfig({...config,web:{...config.web,expose_lan:e.target.checked,token:nextToken}});setDirty(true)}}/> {t("lanAccess")}</label></div>
           <p className="muted">{t("lanAccessHelp")}</p>
           <div className="token-row"><Field label={t("accessToken")} value={config.web.token||""} onChange={v=>{setConfig({...config,web:{...config.web,token:v}});setDirty(true)}} placeholder={t("emptyLocal")} wide/><button className="mini-btn" onClick={()=>{const v=randToken();setConfig({...config,web:{...config.web,token:v}});setDirty(true);setStatusText("New access token generated. Save settings to activate it.")}}>{t("generateToken")}</button></div>
           <div className="notice">{t("restartRequired")}<br/>{t("lanUrl")}: <code>http://&lt;PC-IP&gt;:{config.web.desktop_api_port||17888}/?token={config.web.token||"TOKEN"}</code><br/>{t("tokenRemoteHint")}</div>
-        </div>
+        </div>}
 
-        {security?.supported&&<div className="card"><div className="card-head"><div><h2>{t("windowsSecurity")}</h2><p>{t("windowsSecurityHelp")}</p></div></div><div className="security-list"><div className="security-item"><div><strong>{t("firewall")}</strong><span>{t("firewallHelp")}</span></div><button className={`mini-btn ${security.firewall_enabled?"security-on":""}`} disabled={securityBusy!==null} onClick={()=>void changeSecurity("firewall",!security.firewall_enabled)}>{securityBusy==="firewall"?"…":(security.firewall_enabled?t("enabledState"):t("enable"))}</button></div><div className="security-item"><div><strong>{t("defender")}</strong><span>{t("defenderHelp")}</span></div><button className={`mini-btn ${security.defender_exclusion_enabled?"security-on":""}`} disabled={securityBusy!==null} onClick={()=>void changeSecurity("defender",!security.defender_exclusion_enabled)}>{securityBusy==="defender"?"…":(security.defender_exclusion_enabled?t("enabledState"):t("enable"))}</button></div></div>{securityError&&<div className="notice danger-notice">{securityError}</div>}<div className="managed-path"><span>{t("folder")}</span><code>{security.miner_root}</code></div></div>}
+        {!isMobileClient&&security?.supported&&<div className="card"><div className="card-head"><div><h2>{t("windowsSecurity")}</h2><p>{t("windowsSecurityHelp")}</p></div></div><div className="security-list"><div className="security-item"><div><strong>{t("firewall")}</strong><span>{t("firewallHelp")}</span></div><button className={`mini-btn ${security.firewall_enabled?"security-on":""}`} disabled={securityBusy!==null} onClick={()=>void changeSecurity("firewall",!security.firewall_enabled)}>{securityBusy==="firewall"?"…":(security.firewall_enabled?t("enabledState"):t("enable"))}</button></div><div className="security-item"><div><strong>{t("defender")}</strong><span>{t("defenderHelp")}</span></div><button className={`mini-btn ${security.defender_exclusion_enabled?"security-on":""}`} disabled={securityBusy!==null} onClick={()=>void changeSecurity("defender",!security.defender_exclusion_enabled)}>{securityBusy==="defender"?"…":(security.defender_exclusion_enabled?t("enabledState"):t("enable"))}</button></div></div>{securityError&&<div className="notice danger-notice">{securityError}</div>}<div className="managed-path"><span>{t("folder")}</span><code>{security.miner_root}</code></div></div>}
         <div className="card"><div className="card-head"><div><h2>{t("supportedEngines")}</h2><p>{t("supportedHelp")}</p></div></div><div className="engine-grid">{engines.map(e=><div key={e.id}><strong>{e.name}</strong><span>{e.github_repo||t("manualPath")}</span></div>)}</div></div>
       </section>}
     </main>
