@@ -48,6 +48,7 @@ For Android, install JDK 17, Android SDK platform/build-tools 36 and NDK `29.0.1
 ```sh
 rustup target add aarch64-linux-android x86_64-linux-android
 cd apps/mobile
+npm run tauri -- icon ../../src-tauri/icons/512x512.png --output src-tauri/icons
 npm run tauri -- android init --ci --skip-targets-install
 npm run tauri -- android build --debug --apk --split-per-abi --target aarch64 --target x86_64 --ci
 ```
@@ -57,6 +58,7 @@ For an unsigned simulator build on a Mac with Xcode and CocoaPods:
 ```sh
 rustup target add aarch64-apple-ios-sim
 cd apps/mobile
+npm run tauri -- icon ../../src-tauri/icons/512x512.png --output src-tauri/icons
 npm run tauri -- ios init --ci --skip-targets-install
 npm run tauri -- ios build --debug --target aarch64-sim --no-sign --ci
 ```

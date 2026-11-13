@@ -8,6 +8,8 @@ MinerDesk centralise les profils, le lancement, la surveillance et la planificat
 
 **MinerDesk 0.8.2 ajoute les [mises à jour depuis Fleet](FLEET-UPDATES.md)** : après une activation locale unique, déployez les futures versions signées sur vos rigs Windows et Linux depuis une instance associée.
 
+**[MinerDesk Mobile — préversion Android et iOS](https://github.com/jontechlabs/MinerDesk/releases/tag/mobile-v0.1.0)** permet de piloter vos instances et Fleet depuis un téléphone avec leur adresse web et leur clé d'accès LAN. L'interface adapte les cartes, formulaires et commandes au tactile. Les APK Android sont signés pour test ; le build iOS fourni vise le simulateur sur Mac, tandis qu'un vrai iPhone nécessite une signature Apple. Consultez le [guide mobile](MOBILE.md).
+
 [Télécharger la dernière version](https://github.com/jontechlabs/MinerDesk/releases/latest) · [Documentation complète en anglais](../README.md) · [Historique](../CHANGELOG.md)
 
 ![Tableau de bord MinerDesk](images/dashboard.png)
