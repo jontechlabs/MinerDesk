@@ -49,10 +49,16 @@ jobs:
         with:
           targets: aarch64-linux-android,x86_64-linux-android
       - run: npm ci --include=dev
-      - name: Install the specified Android SDK and NDK
+      - name: Bootstrap the specified Android SDK tools and packages
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          cmdline-tools-version: '12266719'
+          log-accepted-android-sdk-licenses: false
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0 ndk;29.0.14206865'
+      - name: Select the pinned NDK for the native build
         run: |
-          sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;29.0.14206865'
           echo "NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
       - name: Generate mobile brand assets from the shared source icon
         working-directory: apps/mobile
         run: npm run tauri -- icon ../../src-tauri/icons/512x512.png --output src-tauri/icons
