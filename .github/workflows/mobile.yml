@@ -30,6 +30,7 @@ jobs:
       - run: node --test tests/*.test.cjs
       - run: npm run build
       - run: npm --prefix apps/mobile run build
+      - run: python3 tests/mobile-artifacts.py
       - run: cargo test --locked --manifest-path apps/mobile/core/Cargo.toml
   android:
     name: Android APK previews (debug key)
