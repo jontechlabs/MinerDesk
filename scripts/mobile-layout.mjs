@@ -30,7 +30,7 @@ const profiles = [
 ].map(value => ({...value,...nullTuning,revision:`profile-${value.id}`,engine:'srbminer',executable_path:'/fixture-only/never-execute',enabled:true,
   wallet:'fixture-public-address',secondary_wallet:'',merge_secondary:false,merge_separator:'+',password:'x',worker:'TEST-DATA',gpu_ids:'0',gpu_tuning:[],api_port:21550,
   disable_cpu:true,extra_args:'',allow_gpu_overlap:false,linux_run_as_root:false,root_authorization:'not_requested',dev_tip_percent:0}));
-const schedule = {id:'night',name:'TEST · Off-peak hours',enabled:true,days:[0,1,2,3,4,5,6],start:'22:00',end:'06:00',miner_ids:['qtc-night'],post_action:'none',countdown_seconds:60,require_confirmation:true,wake_enabled:false,wake_minutes_before:5};
+const schedule = {id:'night',name:'TEST · Off-peak hours',enabled:true,days:[1,2,3,4,5,6,7],start:'22:00',end:'06:00',miner_ids:['qtc-night'],post_action:'none',countdown_seconds:60,require_confirmation:true,wake_enabled:false,wake_minutes_before:5};
 const metrics = {hashrate_hps:86.5e12,power_w:167,temperature_c:62,fan_pct:44,accepted:842,rejected:1};
 const statuses = profiles.map((profile, i) => ({profile,runtime:{id:profile.id,running:i===0,pid:i===0?1234:null,started_at:null,uptime_seconds:i===0?10452:0,started_by:i===0?'schedule':'',last_error:'',metrics:i===0?metrics:{hashrate_hps:null,power_w:null,temperature_c:null,fan_pct:null,accepted:0,rejected:0},dev_tip_active:false},scheduled_now:i===0,scheduler_paused:false,has_schedule:i!==0}));
 const config = {miners:profiles,schedules:[schedule],web:{desktop_api_port:17888,expose_lan:true,token:''},ui:{language:'en',stop_backend_on_desktop_exit:false,start_with_windows:false,close_to_tray:false}};
@@ -89,7 +89,9 @@ try {
         const responses={'/api/health':fixture.health,'/api/config':fixture.config,'/api/engines':fixture.engines,'/api/status':fixture.statuses,'/api/fleet':fixture.fleet};
         if(path.endsWith('/logs'))return [{ts:1,stream:'stdout',text:'TEST DATA · synthetic miner output'}];
         if(!(path in responses))throw Error('Unimplemented fixture request: '+path);
-        return clone(responses[path]);
+        const response=clone(responses[path]);
+        if(path==='/api/fleet')for(const rig of response.rigs)if(rig.online)rig.last_seen=Math.floor(Date.now()/1000);
+        return response;
       }};
       document.addEventListener('DOMContentLoaded',()=>{
         const badge=document.createElement('div');badge.id='fixture-badge';badge.textContent='TEST DATA · LOCAL UI FIXTURE';
@@ -123,10 +125,18 @@ try {
       await page.locator('.dashboard-table').waitFor();
       await page.getByText('TEST · PRL Eco · RTX 5060 Ti',{exact:true}).waitFor();
       await stage('dashboard');
+      const firstMiner=page.locator('.dashboard-table tbody tr').first();
+      await firstMiner.scrollIntoViewIfNeeded();
+      // A trial click runs browser hit-testing and scrolling without starting,
+      // stopping or changing any miner. Fixed bottom navigation must not hide it.
+      await firstMiner.locator('button:enabled').first().click({trial:true});
+      await stage('miner-card');
       const navigation=page.getByRole('navigation',{name:'Main navigation'});
       assert.equal(await navigation.getByRole('button').count(),6);
       await navigation.getByRole('button',{name:'Fleet',exact:true}).click();
       await page.locator('.fleet-rig').first().waitFor();
+      assert.match(await page.locator('.fleet-kpi').first().innerText(),/2\s*\/\s*3/,'Fixture must report two confirmed rigs');
+      assert.match(await page.locator('.fleet-hash-groups').innerText(),/TH\/s/,'Fixture must show confirmed hashrate');
       await stage('fleet');
       await page.locator('.fleet-rig').first().getByRole('button',{name:'Open',exact:true}).click();
       await page.locator('.fleet-detail').waitFor();
