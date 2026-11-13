@@ -30,7 +30,9 @@ pub struct ConnectionStatus {
     pub version: Option<String>,
 }
 
-// Deliberately not Debug/Serialize: the credential never leaves native memory.
+// Deliberately not Debug/Serialize: connection status never serializes the
+// credential, and the client does not persist it. Authorized API configuration
+// responses may contain the PC's own settings and remain session data.
 struct Session {
     id: String,
     base: Url,
