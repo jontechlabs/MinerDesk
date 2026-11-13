@@ -204,7 +204,9 @@ export default function App({ mobileConnectionId = "" }: { mobileConnectionId?: 
       if (isTauri && h.version !== DESKTOP_VERSION) {
         setStatusText(`Backend version ${h.version} detected; desktop is ${DESKTOP_VERSION}. Restart MinerDesk and check for another running instance.`);
       } else {
-        setStatusText(h.headless ? t("headlessMode") : t("desktopMode"));
+        setStatusText(isMobileClient
+          ? `${language === "fr" ? "Instance connectée" : "Connected instance"} · MinerDesk ${h.version}`
+          : h.headless ? t("headlessMode") : t("desktopMode"));
       }
       if (!selectedMiner && loaded.miners[0]) setSelectedMiner(loaded.miners[0].id);
       if (!consoleMiner && loaded.miners[0]) setConsoleMiner(loaded.miners[0].id);
