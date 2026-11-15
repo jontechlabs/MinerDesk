@@ -220,29 +220,24 @@ pub async fn install_app_update(app: tauri::AppHandle, state: tauri::State<'_, D
         let _ = progress.send(UpdateProgress { stage: "downloading", downloaded, total });
     }, || {}).await.map_err(|e| format!("Download/signature verification failed: {e}"))?;
     // Only verified bytes reach installation. No miner is stopped on download failure.
-    let _ = progress.send(UpdateProgress { stage: "installing", downloaded, total: Some(downloaded) });
     #[cfg(target_os = "windows")]
     {
         let port = super::CoreState::load()?.config().web.desktop_api_port;
+        let _ = progress.send(UpdateProgress { stage: "stopping", downloaded, total: Some(downloaded) });
         // Suppress heartbeats/automatic backend starts during the handover.
         super::DESKTOP_EXIT_SHUTDOWN_STARTED.store(true, Ordering::SeqCst);
-        if super::backend_health_once(port) {
-            if let Err(e) = super::request_backend_shutdown(port) {
-                super::DESKTOP_EXIT_SHUTDOWN_STARTED.store(false, Ordering::SeqCst);
-                return Err(format!("Cannot safely stop the backend: {e}"));
-            }
-            for _ in 0..50 {
-                if !super::backend_health_once(port) { break; }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-            if super::backend_health_once(port) {
-                super::DESKTOP_EXIT_SHUTDOWN_STARTED.store(false, Ordering::SeqCst);
-                return Err("Backend is still running; update cancelled".into());
-            }
+        let stopped = tauri::async_runtime::spawn_blocking(move || stop_windows_backend_for_update(port))
+            .await.map_err(|e| format!("Windows backend shutdown task failed: {e}"))
+            .and_then(|result| result);
+        if let Err(error) = stopped {
+            super::DESKTOP_EXIT_SHUTDOWN_STARTED.store(false, Ordering::SeqCst);
+            super::backend_diagnostic_log(&format!("Windows application update cancelled before installation: {error}"));
+            return Err(error);
         }
     }
     #[cfg(not(target_os = "windows"))]
     { core.cancel_power_action(); core.stop_all(); }
+    let _ = progress.send(UpdateProgress { stage: "installing", downloaded, total: Some(downloaded) });
     #[cfg(target_os = "linux")]
     let result = if target == "linux-x86_64-deb" {
         tauri::async_runtime::spawn_blocking(move || install_deb_verified(&bytes)).await
@@ -261,6 +256,28 @@ pub async fn install_app_update(app: tauri::AppHandle, state: tauri::State<'_, D
     #[cfg(not(target_os = "windows"))]
     app.restart();
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn stop_windows_backend_for_update(port: u16) -> Result<(), String> {
+    if super::update_handover::listener_stopped(port)? { return Ok(()); }
+    let pid = super::tray_backend_json(port, "/api/health")
+        .and_then(|health| health.get("pid").and_then(serde_json::Value::as_u64))
+        .and_then(|pid| u32::try_from(pid).ok()).filter(|pid| *pid > 0);
+    // A completed TCP write is not an acknowledgement. This reads the bounded
+    // response, including standalone/other-Desktop refusal reasons.
+    super::request_backend_shutdown(port).map_err(|e| format!("Cannot safely stop the Windows backend: {e}"))?;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if super::update_handover::backend_stopped(port, pid, super::desktop_process_is_alive)? {
+            super::backend_diagnostic_log("Windows update: backend shutdown acknowledged and exit verified");
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err("The Windows backend did not exit within 20 seconds after accepting shutdown. Installation was not started. Close other MinerDesk windows and retry, or use the GitHub setup. Check backend.log for details.".into());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 #[cfg(target_os = "linux")]

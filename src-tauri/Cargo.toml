@@ -1,6 +1,6 @@
 [package]
 name = "minerdesk"
-version = "0.8.2"
+version = "0.8.3"
 description = "Cross-platform multi-miner launcher, scheduler and headless web monitor"
 authors = ["MinerDesk"]
 edition = "2021"

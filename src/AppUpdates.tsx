@@ -82,6 +82,7 @@ export default function AppUpdates({ desktop, language, settings, dirty, busy, c
     return <a className={className} href={link} target="_blank" rel="noreferrer" onClick={event => void openDownloads(event)}>{t("updateDownloadPage")}</a>;
   }
   const percent = progress?.total ? Math.min(100, Math.floor(100 * progress.downloaded / progress.total)) : null;
+  const progressLabel = t(progress?.stage === "stopping" ? "updateStoppingBackend" : progress?.stage === "installing" ? "updateInstalling" : "updateDownloading");
   return <>
     {settings && <div className="card update-settings">
       <div className="card-head"><div><h2>{t("appUpdates")}</h2><p>{t("updateHelp")}</p></div><button className="mini-btn" disabled={checking || installing || busy} onClick={() => void check(true)}>{checking ? t("updateChecking") : t("checkUpdates")}</button></div>
@@ -96,7 +97,7 @@ export default function AppUpdates({ desktop, language, settings, dirty, busy, c
     {error && <div className="command-error" role="alert"><div><strong>{t("appUpdates")}</strong><p>{error}</p>{downloadLink()}</div><button className="mini-btn" onClick={() => setError("")}>{t("dismissError")}</button></div>}
     {(confirm || installing) && <div className="power-modal-backdrop"><div className="power-modal update-modal" role="dialog" aria-modal="true" aria-labelledby="update-title">
       <h2 id="update-title">{t("updateAvailable").replace("{version}", update?.version || "")}</h2>
-      {installing ? <><p role="status">{t(progress?.stage === "installing" ? "updateInstalling" : "updateDownloading")}{percent !== null ? ` ${percent}%` : ""}</p><progress aria-label={t("updateDownloading")} value={percent ?? undefined} max={100}/><p className="muted">{t("updateWait")}</p></> : <>
+      {installing ? <><p role="status">{progressLabel}{progress?.stage === "downloading" && percent !== null ? ` ${percent}%` : ""}</p><progress aria-label={progressLabel} value={progress?.stage === "downloading" ? percent ?? undefined : undefined} max={100}/><p className="muted">{t("updateWait")}</p></> : <>
         <p>{t("updateConfirm")}</p>{dirty && <div className="notice danger-notice">{t("updateSaveFirst")}</div>}
         {update?.notes && <details className="update-notes"><summary>{t("updateReleaseNotes")}</summary><pre>{update.notes}</pre></details>}
         <div className="power-actions"><button className="btn ghost" autoFocus onClick={() => setConfirm(false)}>{t("cancel")}</button><button className="btn primary" disabled={dirty || busy} onClick={() => void install()}>{t("updateInstallRestart")}</button></div>
