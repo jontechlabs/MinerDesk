@@ -25,6 +25,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - run: npm ci --include=dev
       - run: npm test
+      - name: Native Windows backend shutdown preflight
+        run: cargo test --locked --manifest-path tests/backend-lifecycle-harness/Cargo.toml
       - name: Canonical Windows release build (does not run installer)
         shell: powershell
         run: .\scripts\build-windows.ps1
