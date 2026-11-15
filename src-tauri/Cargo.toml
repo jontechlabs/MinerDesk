@@ -1,6 +1,6 @@
 [package]
 name = "minerdesk"
-version = "0.8.2"
+version = "0.8.3"
 description = "Cross-platform multi-miner launcher, scheduler and headless web monitor"
 authors = ["MinerDesk"]
 edition = "2021"
@@ -67,7 +67,7 @@ libc = "0.2"
 [target.'cfg(target_os = "windows")'.dependencies]
 tauri = { version = "~2.12.1", features = ["tray-icon"] }
 winreg = "0.55"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Memory"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Memory", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

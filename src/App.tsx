@@ -22,7 +22,7 @@ import type {
 
 type Tab = "dashboard" | "fleet" | "miners" | "schedules" | "console" | "settings";
 const isTauri = isDesktopTauri;
-const DESKTOP_VERSION = "0.8.2";
+const DESKTOP_VERSION = "0.8.3";
 
 function resolveApiBase() {
   // Important: Tauri 2 uses an HTTP(S)-looking origin such as

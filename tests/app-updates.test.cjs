@@ -7,7 +7,7 @@ const ts = require('typescript');
 const React = require('react');
 const {create, act} = require('react-test-renderer');
 const root = path.resolve(__dirname,'..');
-let calls = [], nativeUpdate, installError = '', openError = '', preferences, timers, webCalls, installing;
+let calls = [], nativeUpdate, installError = '', openError = '', preferences, timers, webCalls, installing, installWait, progressChannel;
 function production(name) {
   const filename = path.join(root, name);
   const mod = new Module(filename, module);
@@ -19,7 +19,7 @@ function production(name) {
       invoke: async (command, args) => {
         calls.push([command,args]);
         if (command === 'check_app_update') return nativeUpdate;
-        if (command === 'install_app_update') { args.progress.onmessage({stage:'downloading',downloaded:40,total:100}); if (installError) throw Error(installError); }
+        if (command === 'install_app_update') { progressChannel=args.progress; args.progress.onmessage({stage:'downloading',downloaded:40,total:100}); if (installWait) await installWait; if (installError) throw Error(installError); }
         if (command === 'open_github_downloads' && openError) throw Error(openError);
       },
     };
@@ -33,7 +33,7 @@ const policy = production('src/updatePolicy.ts');
 const AppUpdates = production('src/AppUpdates.tsx').default;
 const fresh = () => ({current_version:'0.7.24',version:'0.7.25',notes:'Verified release',release_url:'https://github.com/jontechlabs/MinerDesk/releases/tag/v0.7.25',can_install:true,reason:'supported'});
 function setup() {
-  calls=[]; nativeUpdate=fresh(); installError=''; openError=''; preferences=new Map(); timers=[]; webCalls=0; installing=[];
+  calls=[]; nativeUpdate=fresh(); installError=''; openError=''; preferences=new Map(); timers=[]; webCalls=0; installing=[]; installWait=null; progressChannel=null;
   global.localStorage={getItem:k=>preferences.get(k)??null,setItem:(k,v)=>preferences.set(k,v)};
   global.window={setTimeout:fn=>{timers.push(fn);return timers.length;},setInterval:()=>99,clearTimeout:()=>{},clearInterval:()=>{}};
 }
@@ -84,6 +84,32 @@ test('headless browser only notifies and opens GitHub downloads',async()=>{
   setup(); let view; await act(async()=>{view=create(React.createElement(AppUpdates,props({desktop:false})));}); await check(view);
   assert.equal(webCalls,1); assert.equal(calls.length,0); assert.equal(button(view,'Update…'),undefined);
   assert(view.root.findAllByType('a').some(a=>a.props.href===fresh().release_url)); await act(async()=>view.unmount());
+});
+
+test('Windows backend handover is a distinct phase and refusal leaves a retryable error',async()=>{
+  for (const [language,stopping,installingLabel] of [['en','Stopping the Windows backend safely…','Installing and restarting…'],['fr','Arrêt sécurisé du backend Windows…','Installation et redémarrage…']]) {
+    setup(); let view,finish;
+    installWait=new Promise(resolve=>{finish=resolve;});
+    await act(async()=>{view=create(React.createElement(AppUpdates,props({language})));});
+    await act(async()=>button(view,language==='fr'?'Vérifier maintenant':'Check now').props.onClick());
+    await act(async()=>button(view,language==='fr'?'Mettre à jour…':'Update…').props.onClick());
+    // Do not await the intentionally pending native install from the click handler.
+    act(()=>{view.root.findAllByType('button').find(b=>/Download, install|Télécharger, installer/.test(text(b))).props.onClick();});
+    await act(async()=>progressChannel.onmessage({stage:'stopping',downloaded:100,total:100}));
+    assert.match(text(view.toJSON()),new RegExp(stopping));
+    assert(!text(view.toJSON()).includes('100%'));
+    assert.equal(view.root.findByType('progress').props.value,undefined);
+    assert.equal(view.root.findByType('progress').props['aria-label'],stopping);
+    await act(async()=>progressChannel.onmessage({stage:'installing',downloaded:100,total:100}));
+    assert(text(view.toJSON()).includes(installingLabel));
+    installError='Another MinerDesk Desktop window is still attached. Close the other window and retry.';
+    await act(async()=>{finish();});
+    assert(text(view.toJSON()).includes('Close the other window and retry'));
+    assert.deepEqual(installing,[true,false]);
+    assert.equal(view.root.findAllByType('progress').length,0);
+    assert(button(view,language==='fr'?'Mettre à jour…':'Update…'));
+    await act(async()=>view.unmount());
+  }
 });
 
 test('Windows fallback explains how to enable updates and never offers installation',async()=>{

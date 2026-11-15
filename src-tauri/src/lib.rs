@@ -38,6 +38,9 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tower_http::cors::CorsLayer;
 mod schedule_control;
 mod app_updates;
+mod backend_lifecycle;
+#[cfg(any(target_os = "windows", test))]
+mod update_handover;
 mod external_links;
 mod mining_diagnostics;
 mod onezerominer;
@@ -48,6 +51,7 @@ mod fleet_api;
 mod fleet_updates;
 mod fleet_rollouts_api;
 use gpu_diagnostic_error::GpuDiagnosticError;
+use backend_lifecycle::{DesktopLease, DesktopLeaseState, LeaseProbe, LeaseUpdate};
 #[cfg(target_os = "linux")]
 mod linux_terminal;
 #[cfg(target_os = "linux")]
@@ -76,6 +80,7 @@ static FRONTEND: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../dist");
 const DEFAULT_WEB_PORT: u16 = 17888;
 const MAX_LOG_LINES: usize = 1500;
 static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(false);
+static BACKEND_SHUTDOWN_WORKER_STARTED: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "windows")]
 static DESKTOP_EXIT_SHUTDOWN_STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -3206,18 +3211,6 @@ fn start_scheduler(state: Arc<CoreState>) {
 
 // ---------- Web API ----------
 
-#[derive(Debug, Clone, Copy)]
-struct DesktopLease {
-    last_heartbeat: Instant,
-    warned_stale: bool,
-}
-
-#[derive(Debug, Default)]
-struct DesktopLeaseState {
-    ever_attached: bool,
-    clients: HashMap<u32, DesktopLease>,
-}
-
 #[derive(Clone)]
 struct WebState {
     core: Arc<CoreState>,
@@ -3230,7 +3223,7 @@ struct WebState {
 #[derive(Deserialize)]
 struct LogsQuery { limit: Option<usize> }
 #[derive(Serialize)]
-struct Health { platform: &'static str, linux_elevation_available: bool, version: &'static str, headless: bool, desktop_owned: bool, fleet_enabled: bool, miner_crash_guard: bool, config_path: String, scheduler: bool, time: String }
+struct Health { platform: &'static str, linux_elevation_available: bool, version: &'static str, pid: u32, headless: bool, desktop_owned: bool, fleet_enabled: bool, miner_crash_guard: bool, config_path: String, scheduler: bool, time: String }
 
 fn api_auth(headers: &HeaderMap, state: &WebState) -> Result<(), Response> {
     // Requests originating from the same machine are tagged by a middleware and
@@ -3317,6 +3310,7 @@ async fn api_health(AxumState(s): AxumState<WebState>, headers: HeaderMap) -> Re
             { false }
         },
         version: env!("CARGO_PKG_VERSION"),
+        pid: std::process::id(),
         headless: s.headless,
         desktop_owned: s.desktop_owned,
         fleet_enabled: s.core.fleet_enabled.load(Ordering::SeqCst),
@@ -3590,28 +3584,53 @@ async fn api_backend_shutdown(AxumState(s): AxumState<WebState>, headers: Header
     // 0.7.5 identifies Desktop instances by PID. This avoids one Desktop instance
     // tearing down a managed backend while another Desktop window is still alive.
     if let Some(pid) = desktop_pid_from_headers(&headers) {
-        let other_clients = if let Ok(mut leases) = s.desktop_leases.lock() {
-            leases.clients.remove(&pid);
-            !leases.clients.is_empty()
-        } else {
-            false
+        // Fleet agents can outlive many Desktop sessions. Probe peer processes
+        // outside the mutex/Tokio worker, and discard only unchanged leases for
+        // PIDs proven dead. A new heartbeat or uncertain query retains ownership.
+        let snapshots = match s.desktop_leases.lock() {
+            Ok(leases) => leases.other_clients(pid),
+            Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":"Desktop lease state is unavailable; shutdown was not started"}))).into_response(),
         };
-        if other_clients {
+        let probes = match tokio::task::spawn_blocking(move || snapshots.into_iter().map(|lease| {
+            LeaseProbe { alive: desktop_process_is_alive(lease.pid), lease }
+        }).collect::<Vec<_>>()).await {
+            Ok(probes) => probes,
+            Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":"Desktop process verification failed; shutdown was not started"}))).into_response(),
+        };
+        let decision = match s.desktop_leases.lock() {
+            Ok(mut leases) => leases.prepare_shutdown(pid, &probes),
+            Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":"Desktop lease state is unavailable; shutdown was not started"}))).into_response(),
+        };
+        if let Err(others) = decision {
             backend_diagnostic_log(&format!(
-                "Desktop PID {pid} requested backend shutdown, but another Desktop instance is still attached"
+                "Desktop PID {pid} requested backend shutdown, but other live/unverifiable Desktop instances remain: {others:?}"
             ));
             return Json(json!({"ok":true,"ignored":true,"reason":"other desktop instances remain"})).into_response();
         }
     }
 
     backend_diagnostic_log("backend shutdown requested by MinerDesk Desktop");
-    s.core.cancel_power_action();
-    s.core.stop_all();
-    thread::spawn(|| {
+    if BACKEND_SHUTDOWN_WORKER_STARTED.swap(true, Ordering::SeqCst) {
+        return Json(json!({"ok":true,"pid":std::process::id(),"already_shutting_down":true})).into_response();
+    }
+    // Commit the shutdown before acknowledging it, then let a dedicated worker
+    // complete even if a short best-effort exit client closes its connection.
+    // No scheduler/manual action may create another miner during the handover.
+    s.core.shutting_down.store(true, Ordering::SeqCst);
+    let core = Arc::clone(&s.core);
+    if let Err(error) = thread::Builder::new().name("minerdesk-backend-shutdown".into()).spawn(move || {
+        core.cancel_power_action();
+        core.stop_all();
         thread::sleep(Duration::from_millis(250));
         std::process::exit(0);
-    });
-    Json(json!({"ok":true})).into_response()
+    }) {
+        BACKEND_SHUTDOWN_WORKER_STARTED.store(false, Ordering::SeqCst);
+        // Fail closed: never resume scheduled/miner starts after the shutdown
+        // has been committed but its worker could not be created.
+        backend_diagnostic_log(&format!("Backend shutdown worker could not start: {error}"));
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"Backend shutdown worker failed; installation must not proceed"}))).into_response();
+    }
+    Json(json!({"ok":true,"pid":std::process::id()})).into_response()
 }
 
 fn desktop_pid_from_headers(headers: &HeaderMap) -> Option<u32> {
@@ -3652,28 +3671,16 @@ async fn api_backend_desktop_heartbeat(AxumState(s): AxumState<WebState>, header
 
 #[cfg(target_os = "windows")]
 fn desktop_process_is_alive(pid: u32) -> Option<bool> {
-    // This is only queried after heartbeats have already been missing for the
-    // grace period, so it does not add continuous PowerShell overhead. Returning
-    // None on a probe failure is deliberately fail-safe: an uncertain liveness
-    // check must never stop a miner while the Desktop could still be running.
-    let script = format!(
-        "$p=Get-Process -Id {pid} -ErrorAction SilentlyContinue; if($p){{Write-Output 'ALIVE'}}else{{Write-Output 'DEAD'}}"
-    );
-    let output = powershell_command()
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script.as_str()])
-        .output()
-        .ok()?;
-    if !output.status.success() { return None; }
-    match String::from_utf8_lossy(&output.stdout).trim() {
-        "ALIVE" => Some(true),
-        "DEAD" => Some(false),
-        _ => None,
-    }
+    backend_lifecycle::process_is_alive(pid)
 }
 
 #[cfg(not(target_os = "windows"))]
 fn desktop_process_is_alive(pid: u32) -> Option<bool> {
-    Some(Path::new(&format!("/proc/{pid}")).exists())
+    match fs::metadata(format!("/proc/{pid}")) {
+        Ok(_) => Some(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(false),
+        Err(_) => None,
+    }
 }
 
 fn start_desktop_heartbeat_watchdog(core: Arc<CoreState>, leases: Arc<Mutex<DesktopLeaseState>>) {
@@ -3682,72 +3689,46 @@ fn start_desktop_heartbeat_watchdog(core: Arc<CoreState>, leases: Arc<Mutex<Desk
 
     thread::spawn(move || loop {
         thread::sleep(WATCH_INTERVAL);
-        if core.fleet_enabled.load(Ordering::SeqCst) { continue; }
         let now = Instant::now();
-        let stale_pids: Vec<u32> = match leases.lock() {
+        let stale_leases = match leases.lock() {
             Ok(state) => {
                 if !state.ever_attached {
                     // The scheduled Desktop-owned backend may start at logon before
                     // MinerDesk Desktop. It must stay alive until a Desktop attaches.
                     continue;
                 }
-                state.clients.iter()
-                    .filter_map(|(pid, lease)| (now.duration_since(lease.last_heartbeat) >= HEARTBEAT_GRACE).then_some(*pid))
-                    .collect()
+                state.stale_clients(now, HEARTBEAT_GRACE)
             }
             Err(_) => continue,
         };
 
-        for pid in stale_pids {
+        for lease in stale_leases {
+            let pid = lease.pid;
             let process_alive = desktop_process_is_alive(pid);
             let mut state = match leases.lock() { Ok(state) => state, Err(_) => continue };
-            let still_stale = state.clients.get(&pid)
-                .map(|lease| Instant::now().duration_since(lease.last_heartbeat) >= HEARTBEAT_GRACE)
-                .unwrap_or(false);
-            if !still_stale {
-                // A heartbeat arrived while process liveness was being checked.
-                continue;
-            }
-
-            match process_alive {
-                Some(true) => {
-                    if let Some(lease) = state.clients.get_mut(&pid) {
-                        // The old 0.7.4 watchdog treated a heartbeat transport gap as
-                        // if the Desktop had exited. 0.7.5 never stops mining while
-                        // the owning Desktop PID is still alive.
-                        if !lease.warned_stale {
-                            backend_diagnostic_log(&format!(
-                                "Desktop heartbeat delayed for PID {pid}, but the Desktop process is still alive; keeping backend running"
-                            ));
-                            lease.warned_stale = true;
-                        }
-                        // Avoid a process probe every three seconds while a temporary
-                        // heartbeat transport problem persists.
-                        lease.last_heartbeat = Instant::now();
-                    }
+            match state.reconcile_stale(LeaseProbe { lease, alive: process_alive }, Instant::now()) {
+                LeaseUpdate::AliveWarning => {
+                    backend_diagnostic_log(&format!(
+                        "Desktop heartbeat delayed for PID {pid}, but the Desktop process is still alive; keeping backend running"
+                    ));
                 }
-                Some(false) => {
-                    state.clients.remove(&pid);
+                LeaseUpdate::Removed => {
                     backend_diagnostic_log(&format!(
                         "Desktop PID {pid} is no longer running; releasing its backend lease"
                     ));
                 }
-                None => {
-                    if let Some(lease) = state.clients.get_mut(&pid) {
-                        if !lease.warned_stale {
-                            backend_diagnostic_log(&format!(
-                                "Desktop heartbeat delayed for PID {pid}; process liveness could not be verified, keeping backend running"
-                            ));
-                            lease.warned_stale = true;
-                        }
-                        lease.last_heartbeat = Instant::now();
-                    }
+                LeaseUpdate::UnknownWarning => {
+                    backend_diagnostic_log(&format!(
+                        "Desktop heartbeat delayed for PID {pid}; process liveness could not be verified, keeping backend running"
+                    ));
                 }
+                LeaseUpdate::Changed | LeaseUpdate::Retained => {},
             }
         }
 
         let should_stop = leases.lock()
-            .map(|state| state.ever_attached && state.clients.is_empty())
+            // Fleet autonomy prevents automatic termination, not lease cleanup.
+            .map(|state| state.should_stop_automatically(core.fleet_enabled.load(Ordering::SeqCst)))
             .unwrap_or(false);
         if should_stop {
             backend_diagnostic_log(
@@ -4123,7 +4104,7 @@ fn configure_windows_tray(app: &mut tauri::App, cfg: &AppConfig) -> tauri::Resul
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open-minerdesk" => show_main_window(app),
-            "quit-minerdesk" => { let _ = request_backend_shutdown(port); app.exit(0); },
+            "quit-minerdesk" => { let _ = request_backend_shutdown_mode(port, false); app.exit(0); },
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -4277,24 +4258,11 @@ fn get_system_info() -> Value { json!({"os":std::env::consts::OS,"arch":std::env
 // ---------- Tauri desktop ----------
 
 fn request_backend_shutdown(port: u16) -> Result<(), String> {
-    request_backend_shutdown_mode(port, false)
+    backend_lifecycle::request_shutdown(port, std::process::id(), false)
 }
 
 fn request_backend_shutdown_mode(port: u16, detach: bool) -> Result<(), String> {
-    let addr = format!("127.0.0.1:{port}");
-    let socket_addr: SocketAddr = addr.parse().map_err(|e| format!("invalid backend address: {e}"))?;
-    let mut stream = TcpStream::connect_timeout(
-        &socket_addr,
-        Duration::from_millis(800),
-    ).map_err(|e| format!("connect backend for shutdown: {e}"))?;
-    let desktop_pid = std::process::id();
-    let detach_header = if detach { "X-MinerDesk-Desktop-Detach: 1\r\n" } else { "" };
-    let request = format!(
-        "POST /api/backend/shutdown HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-MinerDesk-Desktop-Pid: {desktop_pid}\r\n{detach_header}Connection: close\r\nContent-Length: 0\r\n\r\n"
-    );
-    stream.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
-    let _ = stream.flush();
-    Ok(())
+    backend_lifecycle::request_shutdown_for_exit(port, std::process::id(), detach)
 }
 
 #[cfg(target_os = "windows")]

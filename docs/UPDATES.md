@@ -22,6 +22,14 @@ After the initial local upgrade and explicit opt-in on each rig, trusted Fleet c
 
 ### Windows Update button troubleshooting
 
+#### “Backend is still running; update cancelled” with Fleet
+
+Versions **0.8.0–0.8.2** can retain a connection from a Desktop process that has already exited while Fleet is enabled. The autonomous backend remains available, but an in-app update can mistake that old connection for another open Desktop instance. **0.8.3** removes verifiably dead connections, preserves autonomous Fleet operation and validates the shutdown acknowledgement before installation. A live or uncertain Desktop process and an independent standalone headless backend still prevent an unsafe shutdown, with a more specific explanation.
+
+To get past an affected old version, save configuration, stop mining and keep only one MinerDesk Desktop instance open on that PC, including the notification area. Try **Restart backend**, then **Update…**. If the refusal persists, install **MinerDesk_0.8.3_x64-setup.exe** once over the existing installation from the official release and launch MinerDesk from the Start menu. Do not delete profiles, schedules, downloaded miners or Fleet data. Other PCs' Fleet interfaces are not additional local Desktop instances.
+
+#### Missing Update button
+
 Versions **0.7.24–0.7.31** could incorrectly classify an installed Windows copy as portable because the NSIS installer stores `InstallLocation` with surrounding quotes. **0.7.32** reads the 64-bit installation registry directly and removes the matching outer quotes before verifying that the running desktop belongs to that directory. See the [Tauri NSIS installer template](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.12.1/crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi#L660).
 
 Versions through **0.7.34** can also misclassify an installed x64 copy whose NSIS registration is in the 32-bit HKLM view (`WOW6432Node`). **0.7.35** checks both 32-bit and 64-bit views, including quoted locations, and verifies that one registered directory matches the running executable's canonical directory.

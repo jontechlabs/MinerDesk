@@ -5,7 +5,7 @@ export type AppUpdate = {
   current_version: string; version: string | null; notes: string; release_url: string;
   can_install: boolean; reason: string;
 };
-export type UpdateProgress = { stage: "downloading" | "installing"; downloaded: number; total: number | null };
+export type UpdateProgress = { stage: "downloading" | "stopping" | "installing"; downloaded: number; total: number | null };
 export function shouldCheckUpdate(enabled: boolean, lastCheck: number, now: number) {
   return enabled && (!Number.isFinite(lastCheck) || lastCheck <= 0 || now < lastCheck || now - lastCheck >= UPDATE_INTERVAL_MS);
 }

@@ -6,7 +6,7 @@
 
 MinerDesk centralise les profils, le lancement, la surveillance et la planification de plusieurs moteurs de minage dans une application de bureau et une interface web. C'est un orchestrateur : le minage est effectué par des logiciels tiers téléchargés séparément.
 
-**MinerDesk 0.8.2 ajoute les [mises à jour depuis Fleet](FLEET-UPDATES.md)** : après une activation locale unique, déployez les futures versions signées sur vos rigs Windows et Linux depuis une instance associée.
+**MinerDesk 0.8.3 corrige le blocage des mises à jour Windows avec Fleet** tout en conservant l'autonomie des rigs. Les [mises à jour depuis Fleet](FLEET-UPDATES.md), disponibles depuis 0.8.2 après une activation locale unique, permettent de déployer les futures versions signées depuis une instance associée.
 
 **[MinerDesk Mobile — préversion Android et iOS](https://github.com/jontechlabs/MinerDesk/releases/tag/mobile-v0.1.0)** permet de piloter vos instances et Fleet depuis un téléphone avec leur adresse web et leur clé d'accès LAN. L'interface adapte les cartes, formulaires et commandes au tactile. Les APK Android sont signés pour test ; le build iOS fourni vise le simulateur sur Mac, tandis qu'un vrai iPhone nécessite une signature Apple. Consultez le [guide mobile](MOBILE.md).
 
@@ -31,17 +31,17 @@ Les réglages disponibles dépendent du moteur et du matériel. Les statistiques
 
 ## Installation
 
-**Windows 10/11 x64 :** télécharger `MinerDesk_0.8.2_x64-setup.exe` depuis la Release. L'installeur configure le backend privilégié ; l'interface graphique reste exécutée comme utilisateur normal. L'archive portable s'appelle `MinerDesk_0.8.2_windows-x64.zip`.
+**Windows 10/11 x64 :** télécharger `MinerDesk_0.8.3_x64-setup.exe` depuis la Release. L'installeur configure le backend privilégié ; l'interface graphique reste exécutée comme utilisateur normal. L'archive portable s'appelle `MinerDesk_0.8.3_windows-x64.zip`.
 
 **Linux x64 compatible Debian :** télécharger le paquet `.deb`, puis :
 
 ```bash
-sudo apt install ./MinerDesk_0.8.2_amd64.deb
+sudo apt install ./MinerDesk_0.8.3_amd64.deb
 ```
 
 La signature Authenticode Windows reste en attente. Les mises à jour 0.7.24 des installateurs, AppImages et paquets Debian disposent d’une signature cryptographique vérifiée par MinerDesk. Comparez aussi leur SHA-256 au fichier `SHA256SUMS.txt` de la Release.
 
-Les autres formats Linux sont `MinerDesk_0.8.2_amd64.AppImage` et `MinerDesk_0.8.2_linux-x64.tar.gz`. Consultez les notes de la Release pour connaître les systèmes et paquets effectivement vérifiés.
+Les autres formats Linux sont `MinerDesk_0.8.3_amd64.AppImage` et `MinerDesk_0.8.3_linux-x64.tar.gz`. Consultez les notes de la Release pour connaître les systèmes et paquets effectivement vérifiés.
 
 À partir de 0.7.24, recherche des versions stables toutes les 6 heures, confirmation avant installation, progression du téléchargement et lien GitHub lorsque la mise à jour automatique est indisponible. Installez 0.7.24 une première fois pour recevoir les prochaines mises à jour. [Guide des mises à jour](UPDATES.md).
 

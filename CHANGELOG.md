@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.3
+
+- Fix a Windows in-app update failure when Fleet retained connections from Desktop processes that had already exited. Remove verifiably dead connections while keeping autonomous Fleet agents running.
+- Recheck other Desktop connections before explicit backend shutdown; preserve live or uncertain processes and independent standalone backends.
+- Validate the backend's bounded shutdown acknowledgement, explain refusals and wait for shutdown before starting installation. Do not force-kill processes or bypass update verification.
+- Preserve existing profiles, schedules, downloaded engines, Fleet pairings and local update policy. Rebuild Windows and Linux packages with version-bound application-update signatures.
+
 ## 0.8.2
 
 - Add optional, default-off Fleet software updates with explicit local activation and per-rig eligibility/progress.
