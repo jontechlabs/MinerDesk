@@ -13,6 +13,8 @@ import { detectDevCoin } from "./devTip";
 import { selectableGpuDevices, gpuSelectorsUnverified } from "./gpuDiscovery";
 import LinuxElevationControl from "./LinuxElevationControl";
 import Fleet from "./Fleet";
+import MobileBrand from "./MobileBrand";
+import { MOBILE_VERSION } from "./mobileVersion";
 import { BulkStartError, runMiningCommand, type MiningAction } from "./minerCommands";
 import { dayNames, languageDirection, LANGUAGES, tr } from "./i18n";
 import type {
@@ -681,7 +683,7 @@ export default function App({ mobileConnectionId = "" }: { mobileConnectionId?: 
 
   return <div className={tab==="fleet"?"app-shell fleet-shell":"app-shell"}>
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">M</div><div><strong>MinerDesk</strong><span>{isMobileClient ? (language === "fr" ? "Pilotage mobile" : "Mobile controller") : `v${DESKTOP_VERSION} · multi-miner`}</span></div></div>
+      <div className="brand">{isMobileClient ? <MobileBrand className="mobile-sidebar-icon"/> : <div className="brand-mark">M</div>}<div><strong>MinerDesk</strong><span>{isMobileClient ? `${language === "fr" ? "Pilotage mobile" : "Mobile controller"} · v${MOBILE_VERSION}` : `v${DESKTOP_VERSION} · multi-miner`}</span></div></div>
       <nav aria-label={language === "fr" ? "Navigation principale" : "Main navigation"}>{(["dashboard","fleet","miners","schedules","console","settings"] as Tab[]).map(x=><button key={x} aria-label={x==="fleet"?"Fleet":t(x)} aria-current={tab===x?"page":undefined} className={tab===x?"nav-active":""} onClick={()=>setTab(x)}><span className="nav-dot" aria-hidden="true"/><span className="nav-label">{isMobileClient ? ({ dashboard: language === "fr" ? "Accueil" : "Overview", fleet: "Fleet", miners: language === "fr" ? "Mineurs" : "Miners", schedules: language === "fr" ? "Planning" : "Schedule", console: "Console", settings: language === "fr" ? "Réglages" : "Settings" }[x]) : x==="fleet"?"Fleet":t(x)}</span></button>)}</nav>
       <div className="sidebar-foot"><div className={`status-pill ${summary.running?"on":"off"}`}><span/>{summary.running} {tab==="fleet"?(language==="fr"?"MINEURS LOCAUX":"LOCAL MINERS"):t("activeMiners").toUpperCase()}</div><div className={`status-pill ${localBackendOnline?"on":"off"}`}><span/>{localBackendOnline?t("backendOnline").toUpperCase():t("backendOffline").toUpperCase()}</div><small>{isMobileClient ? "REMOTE CLIENT" : health?.headless?(health.desktop_owned?"HEADLESS / DESKTOP":"HEADLESS / STANDALONE"):"TAURI DESKTOP"}</small></div>
     </aside>

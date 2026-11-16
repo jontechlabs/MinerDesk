@@ -14,11 +14,13 @@
 
 ![MinerDesk dashboard showing four profiles, one active engine, power, temperature and per-profile controls](docs/images/dashboard.png)
 
-## Mobile client preview
+## MinerDesk Mobile for Android
 
-[MinerDesk Mobile for Android and iOS](https://github.com/jontechlabs/MinerDesk/releases/tag/mobile-v0.1.0) connects your phone to an existing MinerDesk PC using its web address and LAN access key. Use the dashboard, miner profiles, schedules, logs and Fleet through a touch-friendly interface.
+<img src="docs/brand/mobile/icon-128.png" width="64" alt="MinerDesk Mobile connected-M icon">
 
-The preview provides debug-signed Android APKs and a Mac-only iOS Simulator build. A real iPhone requires Apple signing; these are not store releases. Read the [mobile guide](docs/MOBILE.md) for connection, security, build and installation details. The desktop release and its updater remain separate.
+[MinerDesk Mobile 1.0.0](https://github.com/jontechlabs/MinerDesk/releases/tag/mobile-v1.0.0) puts your rigs in your pocket. Connect to an existing MinerDesk PC using its web address and access key, then monitor hashrate, power, temperatures and shares, manage profiles and schedules, read the console and control Fleet from touch-sized screens.
+
+The Android release provides production-signed APKs with a persistent signing identity. Choose **android-arm64** for an ordinary modern phone. If you tested the old 0.1.0 debug preview, uninstall that phone app once before installing 1.0.0; your rigs and their settings stay on the PCs. The iOS project includes the new identity, but a real iPhone release still requires Apple signing. This is direct APK distribution, not a Play Store/App Store listing. Read the [mobile guide](docs/MOBILE.md) for installation, HTTPS and privacy details. Mobile and desktop releases remain separate.
 
 ## Why MinerDesk?
 

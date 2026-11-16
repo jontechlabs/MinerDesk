@@ -1,0 +1,7 @@
+{
+  "identifier": "com.minerdesk.mobile",
+  "certificate_sha256": "1293034d363a45ba5aba5c0eac124dfc7b36fff5af09b5c2f67dea0ec6e5eb20",
+  "subject": "O=JonTechLabs,CN=MinerDesk Mobile",
+  "valid_until_utc": "2056-11-08T06:34:09Z",
+  "usage": "Public fingerprint of the persistent Android release certificate; no private signing material"
+}

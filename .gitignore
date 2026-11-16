@@ -22,6 +22,9 @@ miners/
 *.key
 *.pfx
 *.p12
+*.jks
+*.keystore
+*.dpapi
 .DS_Store
 *.log
 __pycache__/

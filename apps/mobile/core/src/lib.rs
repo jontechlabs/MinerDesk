@@ -295,7 +295,7 @@ impl MobileClient {
             .redirect(redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(15))
-            .user_agent("MinerDeskMobile/0.1.0")
+            .user_agent(concat!("MinerDeskMobile/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| "Could not initialize the mobile connection.")?;
         let health = json_response(
