@@ -1,0 +1,8 @@
+{
+  "default": "launcher-source.png",
+  "bg_color": "#0c1423",
+  "android_bg": "adaptive-background.png",
+  "android_fg": "adaptive-foreground.png",
+  "android_fg_scale": 100,
+  "android_monochrome": "monochrome.png"
+}

@@ -62,6 +62,8 @@
   box-shadow: 0 24px 80px #0004;
 }
 .mobile-connect-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
+.mobile-brand-icon { display: block; width: 56px; height: 56px; flex: none; border-radius: 16px; }
+.mobile-sidebar-icon { display: block; width: 36px; height: 36px; flex: none; border-radius: 11px; }
 .mobile-connect-brand .brand-mark { width: 52px; height: 52px; border-radius: 16px; font-size: 23px; flex: none; }
 .mobile-connect-brand > span { min-width: 0; font-size: 21px; font-weight: 700; letter-spacing: -.4px; }
 .mobile-connect-brand > span small { display: block; margin-top: 3px; color: #9bb0bf; font-size: 12px; font-weight: 500; letter-spacing: .4px; }

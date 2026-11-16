@@ -1,5 +1,12 @@
 # Changelog
 
+## Mobile 1.0.0
+
+- Publish the first stable Android companion, using optimized arm64/x86_64 APKs and a persistent production signing identity pinned in source and verified before packaging.
+- Add the connected-M mobile identity, adaptive/themed Android icons, iOS artwork, editable wordmarks and an MIT-licensed brand kit. Show the mobile version separately from the connected desktop version.
+- Keep session-only access keys, verified HTTPS and the existing touch-friendly dashboard, profiles, schedules, console and Fleet. Explain public tunnel addresses without internal ports.
+- Document the one-time uninstall of the debug preview, manual future stable APK updates and the remaining Apple-signing requirement for physical iPhones. Desktop releases and their updater stay separate.
+
 ## 0.8.3
 
 - Fix a Windows in-app update failure when Fleet retained connections from Desktop processes that had already exited. Remove verifiably dead connections while keeping autonomous Fleet agents running.

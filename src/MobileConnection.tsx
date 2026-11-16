@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import App from "./App";
+import MobileBrand from "./MobileBrand";
+import { MOBILE_VERSION } from "./mobileVersion";
 import { mobileConnect, mobileConnectionStatus, mobileDisconnect, type MobileSession } from "./runtime";
 
 const addressKey = "minerdesk.mobile.address";
@@ -103,15 +105,15 @@ export default function MobileConnection() {
     </section></div>}
   </div>;
   return <main className="mobile-connect-page"><section className="mobile-connect-card" aria-labelledby="mobile-connect-title">
-    <div className="mobile-connect-brand"><div className="brand-mark" aria-hidden="true">M</div><span>MinerDesk <small>Mobile</small></span></div>
+    <div className="mobile-connect-brand"><MobileBrand className="mobile-brand-icon"/><span>MinerDesk <small>Mobile · v{MOBILE_VERSION}</small></span></div>
     <h1 id="mobile-connect-title">{t("Your rigs. Wherever you are.", "Vos rigs. Où que vous soyez.")}</h1>
     <p className="mobile-connect-help">{t("Connect to an existing MinerDesk instance to view miners, manage schedules and control Fleet.", "Connectez-vous à une instance MinerDesk pour suivre les mineurs, gérer les horaires et piloter Fleet.")}</p>
     <form className="mobile-connect-form" onSubmit={event => void connect(event)}>
-      <label className="field"><span>{t("MinerDesk URL", "URL MinerDesk")}</span><input type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="off" value={address} disabled={busy} required placeholder="http://192.168.1.50:17888" onChange={event => setAddress(event.target.value)}/></label>
+      <label className="field"><span>{t("MinerDesk URL", "URL MinerDesk")}</span><input type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="off" value={address} disabled={busy} required placeholder="https://minerdesk.example.com" onChange={event => setAddress(event.target.value)}/></label>
       <label className="field"><span>{t("Web access key", "Clé d’accès web")}</span><input type="password" autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false} value={key} disabled={busy} onChange={event => setKey(event.target.value)} aria-describedby="mobile-key-help"/></label>
       <p id="mobile-key-help" className="mobile-connect-help">{t("Find the URL and access token in Settings → Web / LAN access on your PC. You can also paste its full URL containing ?token=. This is not a one-use Fleet pairing key.", "Retrouvez l’URL et le jeton dans Réglages → Accès web / LAN sur le PC. Vous pouvez aussi coller son URL complète contenant ?token=. Il ne s’agit pas d’une clé d’association Fleet à usage unique.")}</p>
       <label className="check mobile-http-warning"><input type="checkbox" checked={allowInsecureLan} disabled={busy} onChange={event => setAllowInsecureLan(event.target.checked)}/><span>{t("Allow unencrypted HTTP on my trusted local network", "Autoriser HTTP non chiffré sur mon réseau local de confiance")}</span></label>
-      <p className="mobile-connect-help">{t("For access over the Internet, use HTTPS with a valid certificate or a private VPN. Public HTTP connections are refused.", "Pour un accès Internet, utilisez HTTPS avec un certificat valide ou un VPN privé. Les connexions HTTP publiques sont refusées.")}</p>
+      <p className="mobile-connect-help">{t("For Internet access, use HTTPS with a valid certificate or a private VPN. A tunnel's HTTPS address normally uses no local port. Public HTTP connections are refused.", "Pour un accès Internet, utilisez HTTPS avec un certificat valide ou un VPN privé. L’adresse HTTPS d’un tunnel s’utilise normalement sans le port local. Les connexions HTTP publiques sont refusées.")}</p>
       <label className="field"><span>{t("Language", "Langue")}</span><select value={language} disabled={busy} onChange={event => {setLanguage(event.target.value);localStorage.setItem("minerdesk.language", event.target.value);}}><option value="en">English</option><option value="fr">Français</option></select></label>
       {error && <p className="mobile-connect-error" role="alert">{error}</p>}
       <button className="btn primary" type="submit" disabled={busy || !address.trim()}>{busy ? t("Connecting…", "Connexion…") : t("Connect to MinerDesk", "Se connecter à MinerDesk")}</button>
