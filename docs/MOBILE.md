@@ -68,6 +68,7 @@ rustup target add aarch64-linux-android x86_64-linux-android
 cd apps/mobile
 npm run tauri -- icon ../../docs/brand/mobile/icon-manifest.json --output src-tauri/icons
 npm run tauri -- android init --ci --skip-targets-install
+npm run tauri -- icon ../../docs/brand/mobile/icon-manifest.json --output src-tauri/icons
 npm run tauri -- android build --debug --apk --split-per-abi --target aarch64 --target x86_64 --ci
 ```
 
@@ -78,10 +79,13 @@ rustup target add aarch64-apple-ios-sim
 cd apps/mobile
 npm run tauri -- icon ../../docs/brand/mobile/icon-manifest.json --output src-tauri/icons
 npm run tauri -- ios init --ci --skip-targets-install
+npm run tauri -- icon ../../docs/brand/mobile/icon-manifest.json --output src-tauri/icons
 npm run tauri -- ios build --debug --target aarch64-sim --no-sign --ci
 ```
 
 On an Intel Mac use Rust target `x86_64-apple-ios` and CLI target `x86_64` instead. Open the generated `.app` with the matching simulator; do not try to install it on a physical iPhone. The production mobile frontend is bundled locally, so a Vite development server is not required for these previews.
+
+Run icon generation **again after native initialization**. Before initialization, Tauri writes fallback icons under `src-tauri/icons/android` and `icons/ios`; after initialization, it writes the real Android resources and iOS app-icon catalog. The CI verifies those initialized resources and checks the production APK's decoded launcher pixels, so a template icon cannot silently replace the mobile brand.
 
 ## Maintainer production build
 

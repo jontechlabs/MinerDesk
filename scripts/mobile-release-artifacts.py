@@ -6,6 +6,7 @@ The private Android keystore and its passwords are never read by this script.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,14 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 MOBILE = ROOT / 'apps/mobile'
 ARCHITECTURES = {'arm64-v8a': ('arm64', 183), 'x86_64': ('x86_64', 62)}
+
+
+def native_brand_tools():
+    source = Path(__file__).with_name('mobile-native-assets.py')
+    spec = importlib.util.spec_from_file_location('mobile_native_brand', source)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def run(args):
@@ -44,7 +53,7 @@ def reject_test_attributes(tree):
                 raise RuntimeError('Production APK must not be debuggable or testOnly')
 
 
-def verify_apk(apk, sdk, version, identifier, version_code, expected_certificate):
+def verify_apk(apk, sdk, version, identifier, version_code, expected_certificate, brand, brand_tools):
     with zipfile.ZipFile(apk) as archive:
         payloads = [name for name in archive.namelist()
                     if re.fullmatch(r'lib/[^/]+/libminerdesk_mobile_lib\.so', name)]
@@ -82,7 +91,8 @@ def verify_apk(apk, sdk, version, identifier, version_code, expected_certificate
     if 'Verified using v2 scheme (APK Signature Scheme v2): true' not in certificate:
         raise RuntimeError('Android release requires a verified APK Signature Scheme v2 signature')
     run([sdk / 'zipalign', '-c', '-P', '16', '-v', '4', apk])
-    return abi, signer
+    apk_brand = brand_tools.verify_apk_brand(apk, brand)
+    return abi, signer, apk_brand
 
 
 def main():
@@ -110,6 +120,8 @@ def main():
     pinned_certificate = certificate_fingerprint(certificate_record.get('certificate_sha256', ''))
     if expected_certificate != pinned_certificate:
         raise RuntimeError('Expected signing certificate differs from the committed production identity')
+    brand_tools = native_brand_tools()
+    native_brand = brand_tools.verify_native_assets('android', root=ROOT, write_receipt=False)
     sdk = Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0'
     source = MOBILE / 'src-tauri/gen/android/app/build/outputs/apk'
     out = ROOT / 'publish/mobile-android-release'
@@ -118,18 +130,19 @@ def main():
     # Verify every candidate before any executable is staged for publication.
     verified = {}
     for apk in sorted(source.rglob('*.apk')):
-        abi, signer = verify_apk(apk, sdk, version, config['identifier'], version_code, expected_certificate)
+        abi, signer, apk_brand = verify_apk(apk, sdk, version, config['identifier'], version_code,
+                                            expected_certificate, native_brand, brand_tools)
         if abi in verified:
             raise RuntimeError('Duplicated production Android ABI')
-        verified[abi] = (apk, signer)
+        verified[abi] = (apk, signer, apk_brand)
     if set(verified) != set(ARCHITECTURES):
         raise RuntimeError('Both arm64 and x86_64 production APKs are required')
     out.mkdir(parents=True, exist_ok=True)
     architectures = {}
-    for abi, (apk, signer) in verified.items():
+    for abi, (apk, signer, apk_brand) in verified.items():
         name = f'MinerDesk-Mobile_{version}_android-{ARCHITECTURES[abi][0]}.apk'
         shutil.copyfile(apk, out / name)
-        architectures[abi] = {'file': name, 'certificate_sha256': signer,
+        architectures[abi] = {'file': name, 'certificate_sha256': signer, 'native_brand': apk_brand,
                               'sha256': digest(out / name), 'size_bytes': (out / name).stat().st_size}
     details = {'kind': 'Android production APK release', 'version': version,
                'version_code': version_code, 'identifier': config['identifier'],
@@ -143,6 +156,7 @@ def main():
     (out / 'BUILD-INFO-android.json').write_text(json.dumps(details, indent=2) + '\n')
     # Publish the reviewed public identity, never the keystore or its passwords.
     (out / 'SIGNING-CERTIFICATE-android.json').write_text(json.dumps(certificate_record, indent=2) + '\n')
+    (out / 'NATIVE-BRAND-android.json').write_text(json.dumps(native_brand, indent=2) + '\n')
     (out / 'INSTALL-ANDROID.txt').write_text(
         'MinerDesk Mobile — Android release\n\n'
         'Choose android-arm64 for ordinary modern Android phones. android-x86_64 is for Intel devices/emulators.\n'

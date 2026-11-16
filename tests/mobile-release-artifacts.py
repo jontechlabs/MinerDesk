@@ -24,6 +24,10 @@ VERSION = '1.0.0'
 VERSION_CODE = 1000000
 IDENTIFIER = 'com.minerdesk.mobile'
 CERTIFICATE = 'a' * 64
+fixture_spec = importlib.util.spec_from_file_location(
+    'native_brand_fixtures', Path(__file__).with_name('mobile-native-assets.py'))
+brand_fixtures = importlib.util.module_from_spec(fixture_spec)
+fixture_spec.loader.exec_module(brand_fixtures)
 
 
 class ReleasePackaging(unittest.TestCase):
@@ -46,6 +50,7 @@ class ReleasePackaging(unittest.TestCase):
         brand = self.root / 'docs/brand/mobile'
         brand.mkdir(parents=True)
         (brand / 'mark.svg').write_text('<svg><!-- TEST DATA --></svg>')
+        _, self.native_icons = brand_fixtures.android_fixture(self.root)
         self.apks = {}
         for abi, machine in [('arm64-v8a', 183), ('x86_64', 62)]:
             self.write_apk(abi, machine)
@@ -65,7 +70,7 @@ class ReleasePackaging(unittest.TestCase):
         self.version_code = VERSION_CODE
         self.internet = True
 
-    def write_apk(self, abi, machine, suffix='release', include_dex=True):
+    def write_apk(self, abi, machine, suffix='release', include_dex=True, wrong_brand=False):
         header = bytearray(64)
         header[:4] = b'\x7fELF'
         header[4:6] = b'\x02\x01'
@@ -76,6 +81,7 @@ class ReleasePackaging(unittest.TestCase):
             if include_dex:
                 archive.writestr('classes.dex', 'TEST DATA: not executable')
             archive.writestr(f'lib/{abi}/libminerdesk_mobile_lib.so', header)
+            brand_fixtures.append_apk_brand(archive, self.native_icons, replace=wrong_brand)
         self.apks[abi] = apk
         return apk
 
@@ -142,6 +148,7 @@ class ReleasePackaging(unittest.TestCase):
             file = self.output / record['file']
             self.assertEqual(file.read_bytes(), self.apks[abi].read_bytes())
             self.assertEqual(record['certificate_sha256'], CERTIFICATE)
+            self.assertTrue(record['native_brand']['verified'])
             self.assertEqual(record['sha256'], hashlib.sha256(file.read_bytes()).hexdigest())
         checksums = {}
         for line in (self.output / 'SHA256SUMS-android.txt').read_text().splitlines():
@@ -154,11 +161,18 @@ class ReleasePackaging(unittest.TestCase):
         self.assertIn('Uninstall only MinerDesk Mobile preview', (self.output / 'INSTALL-ANDROID.txt').read_text())
         self.assertEqual(json.loads((self.output / 'SIGNING-CERTIFICATE-android.json').read_text()),
                          json.loads(self.certificate_path.read_text()))
+        self.assertEqual(json.loads((self.output / 'NATIVE-BRAND-android.json').read_text())['resource_count'], 25)
         self.assertEqual(sum(Path(call[0]).name == 'zipalign' for call in self.calls), 2)
 
     def test_wrong_native_architecture_rejected_before_staging(self):
         self.write_apk('arm64-v8a', 62)
         with self.assertRaisesRegex(RuntimeError, 'architecture'):
+            self.invoke()
+        self.assert_not_staged()
+
+    def test_actual_apk_with_default_icon_is_rejected_before_any_executable_is_staged(self):
+        self.write_apk('arm64-v8a', 183, wrong_brand=True)
+        with self.assertRaisesRegex(RuntimeError, 'APK native launcher pixels'):
             self.invoke()
         self.assert_not_staged()
 

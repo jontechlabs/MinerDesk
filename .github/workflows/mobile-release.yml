@@ -62,7 +62,12 @@ jobs:
       - run: npm run build
       - run: npm --prefix apps/mobile run build
       - run: python3 tests/mobile-artifacts.py
-      - run: python3 tests/mobile-release-artifacts.py
+      - name: Verify release packaging and native brand regression tests
+        run: |
+          python3 -m venv "$RUNNER_TEMP/mobile-image-tools"
+          "$RUNNER_TEMP/mobile-image-tools/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: Pillow==13.0.0
+          "$RUNNER_TEMP/mobile-image-tools/bin/python" tests/mobile-native-assets.py
+          "$RUNNER_TEMP/mobile-image-tools/bin/python" tests/mobile-release-artifacts.py
       - run: cargo test --locked --manifest-path apps/mobile/core/Cargo.toml
   android:
     name: Production-signed arm64 and x86_64 APKs
@@ -103,6 +108,14 @@ jobs:
       - name: Initialize the isolated Android project
         working-directory: apps/mobile
         run: npm run tauri -- android init --ci --skip-targets-install
+      - name: Apply the brand to the initialized native resources
+        working-directory: apps/mobile
+        run: npm run tauri -- icon ../../docs/brand/mobile/icon-manifest.json --output src-tauri/icons
+      - name: Verify actual launcher resources before compilation
+        run: |
+          python3 -m venv "$RUNNER_TEMP/mobile-image-tools"
+          "$RUNNER_TEMP/mobile-image-tools/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: Pillow==13.0.0
+          "$RUNNER_TEMP/mobile-image-tools/bin/python" scripts/mobile-native-assets.py android
       - name: Configure production signing without embedding credentials in source
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -169,7 +182,7 @@ jobs:
           ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
         run: |
           git diff --exit-code -- apps/mobile/core/Cargo.lock apps/mobile/src-tauri/Cargo.lock
-          python3 scripts/mobile-release-artifacts.py --source-commit "$GITHUB_SHA"
+          "$RUNNER_TEMP/mobile-image-tools/bin/python" scripts/mobile-release-artifacts.py --source-commit "$GITHUB_SHA"
       - name: Upload only verified public release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
