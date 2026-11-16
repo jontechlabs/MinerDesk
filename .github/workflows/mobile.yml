@@ -31,6 +31,12 @@ jobs:
       - run: npm run build
       - run: npm --prefix apps/mobile run build
       - run: python3 tests/mobile-artifacts.py
+      - name: Verify native icon packaging regressions
+        run: |
+          python3 -m venv "$RUNNER_TEMP/mobile-image-tools"
+          "$RUNNER_TEMP/mobile-image-tools/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: Pillow==13.0.0
+          "$RUNNER_TEMP/mobile-image-tools/bin/python" tests/mobile-native-assets.py
+          "$RUNNER_TEMP/mobile-image-tools/bin/python" tests/mobile-release-artifacts.py
       - run: cargo test --locked --manifest-path apps/mobile/core/Cargo.toml
   android:
     name: Android APK previews (debug key)
@@ -66,6 +72,14 @@ jobs:
       - name: Initialize the isolated mobile project
         working-directory: apps/mobile
         run: npm run tauri -- android init --ci --skip-targets-install
+      - name: Apply the brand to the initialized Android resources
+        working-directory: apps/mobile
+        run: npm run tauri -- icon ../../docs/brand/mobile/icon-manifest.json --output src-tauri/icons
+      - name: Verify the actual Android launcher resources
+        run: |
+          python3 -m venv "$RUNNER_TEMP/mobile-image-tools"
+          "$RUNNER_TEMP/mobile-image-tools/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: Pillow==13.0.0
+          "$RUNNER_TEMP/mobile-image-tools/bin/python" scripts/mobile-native-assets.py android
       - name: Build debug-signed arm64 and x86_64 APKs
         working-directory: apps/mobile
         run: npm run tauri -- android build --debug --apk --split-per-abi --target aarch64 --target x86_64 --ci
@@ -107,6 +121,14 @@ jobs:
       - name: Initialize the isolated mobile project
         working-directory: apps/mobile
         run: npm run tauri -- ios init --ci --skip-targets-install
+      - name: Apply the brand to the initialized iOS asset catalog
+        working-directory: apps/mobile
+        run: npm run tauri -- icon ../../docs/brand/mobile/icon-manifest.json --output src-tauri/icons
+      - name: Verify the actual iOS app icon catalog
+        run: |
+          python3 -m venv "$RUNNER_TEMP/mobile-image-tools"
+          "$RUNNER_TEMP/mobile-image-tools/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: Pillow==13.0.0
+          "$RUNNER_TEMP/mobile-image-tools/bin/python" scripts/mobile-native-assets.py ios
       - name: Build for the simulator without Apple signing credentials
         working-directory: apps/mobile
         run: npm run tauri -- ios build --debug --target "$MD_IOS_TARGET" --no-sign --ci

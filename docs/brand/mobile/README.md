@@ -11,6 +11,8 @@ cd apps/mobile
 npm run tauri -- icon ../../docs/brand/mobile/icon-manifest.json --output src-tauri/icons
 ```
 
+For Android/iOS builds, run that command once before native initialization and again after `android init` / `ios init`. Tauri selects the actual native resource directories only when they exist. CI compares the pre-initialization brand sources with the real launcher/catalog assets and checks the decoded icons embedded in production APKs.
+
 - `launcher-source.png`: 1024 × 1024 RGB, fully opaque square master. No baked-in rounded corners, border, text or drop shadow. The operating system applies its own mask.
 - `ios-source.png`: identical opaque master, suitable for the iOS app icon set. This supplies artwork only; it does not provide Apple signing or App Store approval.
 - `adaptive-background.png`: opaque midnight layer for Android adaptive icons.
